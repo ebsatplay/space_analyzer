@@ -1,0 +1,9 @@
+streamlit
+requests
+pandas
+python-dotenv
+folium
+streamlit-folium
+geopandas
+# parquet 읽기에 필요. streamlit이 전이 의존성으로 끌어오지만 핵심 기능이라 명시해둔다
+pyarrow>=7.0,<26

@@ -1,0 +1,50 @@
+[
+  {
+    "데이터명": "인구",
+    "기준연월": "202608",
+    "적용일자": "2026-09-03",
+    "갱신주기": "monthly",
+    "다운로드URL": "https://jumin.mois.go.kr/ageStatMonth.do",
+    "download_guide": "행안부 사이트에서 아래대로 설정 후 받으세요:\n1. 연령 구분 단위 → '5세'\n2. 연령 조회 범위 → '0세 ~ 100세 이상'\n3. '전체읍면동현황' 선택\n4. '검색' 버튼 먼저 클릭\n5. 그 다음 'csv 파일 다운로드' 클릭"
+  },
+  {
+    "데이터명": "학교",
+    "기준연월": "202603",
+    "적용일자": "2026-09-03",
+    "갱신주기": "biannual",
+    "다운로드URL": "https://www.data.go.kr/data/15021148/standard.do",
+    "download_guide": "data.go.kr 페이지에서 CSV 다운로드 버튼 클릭"
+  },
+  {
+    "데이터명": "도서관",
+    "기준연월": "202606",
+    "적용일자": "2026-09-03",
+    "갱신주기": "yearly",
+    "다운로드URL": "https://www.data.go.kr/data/15013109/standard.do",
+    "download_guide": "data.go.kr 페이지에서 CSV 다운로드 버튼 클릭"
+  },
+  {
+    "데이터명": "관광지",
+    "기준연월": "202606",
+    "적용일자": "2026-09-03",
+    "갱신주기": "yearly",
+    "다운로드URL": "https://www.data.go.kr/data/15021141/standard.do",
+    "download_guide": "data.go.kr 페이지에서 CSV 다운로드 버튼 클릭"
+  },
+  {
+    "데이터명": "폐교",
+    "기준연월": "202606",
+    "적용일자": "2026-09-03",
+    "갱신주기": "yearly",
+    "다운로드URL": "https://www.data.go.kr/data/15107729/standard.do",
+    "download_guide": "data.go.kr 페이지에서 CSV 다운로드 버튼 클릭"
+  },
+  {
+    "데이터명": "경계",
+    "기준연월": "202506",
+    "적용일자": "2026-09-03",
+    "갱신주기": "yearly",
+    "다운로드URL": "https://www.data.go.kr/data/15129688/fileData.do",
+    "download_guide": "공공데이터포털에서 SHP 파일(zip) 다운로드"
+  }
+]
