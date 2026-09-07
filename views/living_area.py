@@ -28,7 +28,7 @@ page_header("생활권 분석", "걷고 머무는 시간으로 그려보는, 우
 st.markdown('<div class="search-section-label">위치 검색</div>', unsafe_allow_html=True)
 search_col, button_col = st.columns([4, 1])
 address = search_col.text_input(
-    "기준 주소 또는 장소명", value="포항시청", label_visibility="collapsed",
+    "기준 주소 또는 장소명", value="파주놀이구름", label_visibility="collapsed",
     placeholder="기준 주소 또는 장소명을 입력하세요",
 )
 if button_col.button("검색", use_container_width=True):
