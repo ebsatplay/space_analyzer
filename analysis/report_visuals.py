@@ -51,6 +51,10 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # 배포(리눅스)에는 packages.txt 로 fonts-nanum 을 깔아 NanumGothic 계열이 생긴다.
 # 로컬 윈도우는 맑은 고딕, 맥은 AppleGothic 을 쓴다.
+#
+# packages.txt 에는 패키지명만 한 줄씩 적는다 (주석을 지원하는지 확실하지 않아
+# 설명을 넣지 않는다). fonts-nanum-coding 은 Debian 저장소에 없어서 배포가 실패한다
+# - 코딩용 고정폭 폰트라 차트에는 쓰이지도 않으므로 넣지 말 것.
 KOREAN_FONT_CANDIDATES = (
     "Malgun Gothic",
     "NanumGothic",
