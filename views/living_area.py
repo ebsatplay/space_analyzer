@@ -5,7 +5,9 @@
 
 import math
 
+import altair as alt
 import folium
+import pandas as pd
 import streamlit as st
 from folium.plugins import MarkerCluster
 from streamlit_folium import folium_static
@@ -23,7 +25,22 @@ from analysis.area_profile import (
     get_tourism_in_circle,
 )
 from analysis.living_area import calc_radius_km, get_dong_geometries, get_dongs_in_circle
-from analysis.visitors import DATA_CAVEAT, get_visitors_for_address
+
+from analysis.datalab import (
+    DATA_CAVEAT as DATALAB_CAVEAT,
+    DATA_SOURCE as DATALAB_SOURCE,
+    get_monthly_interest,
+    get_search_rank_for_sigungu,
+    get_search_rank_top,
+    get_sigungu_datalab,
+)
+from analysis.tourism_region import (
+    TREND_CAVEAT,
+    get_region_detail,
+    list_registered_regions,
+    summarize_level_and_trend,
+)
+from analysis.visitors import DATA_CAVEAT, get_visitors_for_address, resolve_sigungu_cd
 from analysis.region_news import (
     BUSINESS_KEYWORDS,
     RECENT_MONTHS,
@@ -481,6 +498,62 @@ if selected:
                 f"주말 배수 3사분위 {quartiles['weekend_lift_q3']:.2f}배 이상이면 상위권)"
             )
 
+    # 체류시간·숙박일수는 데이터랩 쪽 지표라 위 방문자수(API)와 출처가 다르다
+    datalab_sigungu_cd, datalab_sigungu_nm = resolve_sigungu_cd(addr)
+    datalab = get_sigungu_datalab(datalab_sigungu_cd) if datalab_sigungu_cd else None
+
+    if datalab is not None:
+        stay_quartiles = datalab["quartiles"]
+        stay_col1, stay_col2 = st.columns(2)
+        kpi_card(
+            stay_col1,
+            "평균 체류시간",
+            f"{datalab['avg_stay_hours']}",
+            "시간",
+            "violet",
+            sub=(
+                f"전국 중위 {stay_quartiles['stay_minutes_median'] / 60:.1f}시간 대비 "
+                f"{datalab['stay_vs_median'] / 60:+.1f}시간"
+                if stay_quartiles
+                else None
+            ),
+        )
+        kpi_card(
+            stay_col2,
+            "평균 숙박일수",
+            f"{datalab['avg_stay_nights']:.2f}",
+            "일",
+            "violet",
+            sub=(
+                f"전국 중위 {stay_quartiles['stay_nights_median']:.2f}일 대비 "
+                f"{datalab['nights_vs_median']:+.2f}일"
+                if stay_quartiles
+                else None
+            ),
+        )
+
+        notes = [f"※ 체류·숙박은 {DATALAB_SOURCE} 기준 ({datalab['sigungu_nm']})"]
+        if datalab["fallback_from"]:
+            notes.append(
+                "데이터랩은 분구를 합친 시 단위로 제공하므로 구가 아닌 "
+                f"{datalab['sigungu_nm']} 전체 값입니다"
+            )
+        if datalab["period_merged"]:
+            notes.append("행정구역 통합 지역이라 통합 전후 기간을 합산한 값입니다")
+        st.caption(" · ".join(notes))
+
+        rank_hits = get_search_rank_for_sigungu(datalab["sigungu_cd"])
+        if len(rank_hits):
+            places = ", ".join(
+                f"{row.rank}위 {row.place_name}({row.category_mid})"
+                for row in rank_hits.sort_values("rank").itertuples(index=False)
+            )
+            st.markdown(
+                f'<div class="highlight-line">🔍 전국 관광지 검색순위 TOP 100에 '
+                f"이 지역이 있습니다 - {places}</div>",
+                unsafe_allow_html=True,
+            )
+
     st.subheader("생활권 주변 시설 (카카오)")
 
     kakao_counts = {category: kakao_nearby[category]["count"] for category in KAKAO_CATEGORIES}
@@ -513,6 +586,183 @@ if selected:
             )
 
     st.caption("※ 카카오 실시간 검색 결과이며, 앞의 인구/학교/도서관/관광지와 달리 매번 최신 상태를 반영합니다")
+
+    st.subheader("지역 관광 상세")
+
+    region_detail = get_region_detail(datalab_sigungu_cd) if datalab_sigungu_cd else None
+
+    if region_detail is None:
+        registered = list_registered_regions()
+        registered_text = (
+            " · ".join(f"{name}" for _code, name in registered) if registered else "없음"
+        )
+        st.info(
+            "이 지역은 상세 데이터가 아직 등록되지 않았습니다 (추후 추가 예정). "
+            "위의 전국 기준 지표만 참고해주세요." + "\n\n" +
+            f"현재 등록된 지역: {registered_text}"
+        )
+    else:
+        summary = summarize_level_and_trend(region_detail)
+        if summary:
+            st.markdown(
+                f'<div class="highlight-line">📈 {region_detail["region_nm"]} · {summary}</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.caption(
+            "아래 증감률은 전년동기 대비 **추세**입니다. 위 카드의 체류시간·숙박일수 "
+            "**수준**(전국 중위 대비)과 함께 봐야 합니다 - 수준이 낮아도 추세가 오르면 "
+            "개선 중인 지역입니다."
+        )
+
+        metric_cols = st.columns(len(region_detail["metrics"]))
+        for col, metric in zip(metric_cols, region_detail["metrics"]):
+            if metric["level_vs_median"] is None:
+                sub = metric["verdict"]
+            else:
+                sub = (
+                    f"수준 {metric['level_vs_median']:+}{metric['unit']}"
+                    f" · {metric['verdict']}"
+                )
+            kpi_card(
+                col,
+                f"{metric['label']} 추세",
+                f"{metric['trend_pct']:+.1f}",
+                "%",
+                "teal" if (metric["trend_pct"] or 0) > 0 else "amber",
+                sub=sub,
+            )
+
+        trend_cols = st.columns(len(region_detail["trends"]))
+        for col, trend in zip(trend_cols, region_detail["trends"]):
+            kpi_card(
+                col,
+                f"{trend['label']} 추세",
+                f"{trend['trend_pct']:+.1f}",
+                "%",
+                "lavender",
+            )
+        st.caption(
+            f"※ 참고: {region_detail['sido_nm']} 전체 방문자 증가율 "
+            f"{region_detail['sido_growth_pct']:+.1f}%"
+        )
+
+        flow_col1, flow_col2 = st.columns(2)
+        with flow_col1:
+            st.markdown("**🚗 어디서 오나 (유입 TOP 5)**")
+            for item in region_detail["inflow"]:
+                st.markdown(
+                    f"{item['rank']}. {item['counterpart_nm']} &nbsp; **{item['ratio']}%**",
+                    unsafe_allow_html=True,
+                )
+        with flow_col2:
+            st.markdown("**🚗 어디로 가나 (유출 TOP 5)**")
+            for item in region_detail["outflow"]:
+                st.markdown(
+                    f"{item['rank']}. {item['counterpart_nm']} &nbsp; **{item['ratio']}%**",
+                    unsafe_allow_html=True,
+                )
+
+        if region_detail["similar_regions"]:
+            st.markdown(
+                "**🔗 관광 성격이 비슷한 지역** &nbsp; "
+                + " · ".join(region_detail["similar_regions"])
+            )
+            st.caption("데이터랩이 관광 지표가 유사하다고 묶은 지역입니다 (사업 사례 비교용)")
+
+        st.caption(f"※ 출처: {DATALAB_SOURCE} · {TREND_CAVEAT}")
+
+    st.subheader("전국 관광 트렌드 (참고)")
+
+    monthly = get_monthly_interest()
+    if monthly is None:
+        st.info("전국 관광 트렌드 데이터가 없습니다 (python -m ingest.build_datalab 실행 필요)")
+    else:
+        chart_data = monthly.dropna(subset=["interest_index"]).copy()
+        # 'YYYYMM' -> 월 단위 날짜로 바꿔 시간축이 제대로 눕게 한다
+        chart_data["month"] = pd.to_datetime(chart_data["base_ym"], format="%Y%m")
+
+        # 한 계열이라 범례 없이 색 하나만 쓴다 (제목이 계열을 설명)
+        line_color = "#1D8FB5"
+        hover = alt.selection_point(
+            fields=["month"], nearest=True, on="pointerover", empty=False, clear="pointerout"
+        )
+        base = alt.Chart(chart_data).encode(
+            x=alt.X(
+                "month:T",
+                title=None,
+                axis=alt.Axis(format="%y.%m", tickCount=8, grid=False,
+                              labelColor="#898781", domainColor="#C3C2B7", tickColor="#C3C2B7"),
+            ),
+            y=alt.Y(
+                "interest_index:Q",
+                title="관심도 지수",
+                axis=alt.Axis(grid=True, gridColor="#E1E0D9", gridWidth=1,
+                              labelColor="#898781", titleColor="#898781", domain=False, ticks=False),
+            ),
+        )
+        line = base.mark_line(color=line_color, strokeWidth=2)
+        points = base.mark_circle(color=line_color, size=64, opacity=0).encode(
+            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+            tooltip=[
+                alt.Tooltip("month:T", title="기준월", format="%Y-%m"),
+                alt.Tooltip("interest_index:Q", title="관심도 지수"),
+                alt.Tooltip("visitor_growth_pct:Q", title="방문자 증감률(%)"),
+            ],
+        ).add_params(hover)
+        rule = base.mark_rule(color="#C3C2B7", strokeWidth=1).transform_filter(hover)
+
+        st.altair_chart(
+            (line + rule + points).properties(height=260, background="#FCFCFB"),
+            use_container_width=True,
+        )
+
+        latest = chart_data.iloc[-1]
+        peak = chart_data.loc[chart_data["interest_index"].idxmax()]
+        st.caption(
+            f"국내관광 관심도(상대지수) {chart_data['base_ym'].min()} ~ {chart_data['base_ym'].max()} · "
+            f"최고 {peak['base_ym']} {peak['interest_index']:.0f} · "
+            f"최근 {latest['base_ym']} {latest['interest_index']:.0f}"
+        )
+        st.caption(
+            "※ 관심도는 절대 검색량이 아니라 기간 내 상대지수(0~100)이며, "
+            "가장 최근 달은 집계가 덜 찬 상태일 수 있습니다"
+        )
+
+        with st.expander("📊 월별 수치 표로 보기"):
+            table = monthly.rename(columns={
+                "base_ym": "기준연월",
+                "interest_index": "관심도 지수",
+                "visitor_count": "방문자수",
+                "visitor_growth_pct": "방문자 증감률(%)",
+                "spending": "관광지출액",
+                "spending_growth_pct": "지출 증감률(%)",
+            })
+            st.dataframe(
+                table[["기준연월", "관심도 지수", "방문자수", "방문자 증감률(%)",
+                       "관광지출액", "지출 증감률(%)"]],
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    rank_top = get_search_rank_top(10)
+    if rank_top is not None:
+        with st.expander("🔍 전국 관광지 검색순위 TOP 10"):
+            rank_table = rank_top.rename(columns={
+                "rank": "순위",
+                "place_name": "관광지명",
+                "sido_nm": "시도",
+                "category_mid": "중분류",
+                "category_sub": "소분류",
+            })
+            st.dataframe(
+                rank_table[["순위", "관광지명", "시도", "중분류", "소분류"]],
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption("전국 TOP 100 중 상위 10곳입니다")
+
+    st.caption(f"※ 출처: {DATALAB_SOURCE} · {DATALAB_CAVEAT}")
 
     st.subheader("지역 사업 뉴스·이슈")
 
