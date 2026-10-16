@@ -23,6 +23,7 @@ from analysis.area_profile import (
     get_tourism_in_circle,
 )
 from analysis.living_area import calc_radius_km, get_dong_geometries, get_dongs_in_circle
+from analysis.visitors import DATA_CAVEAT, get_visitors_for_address
 from analysis.region_news import (
     BUSINESS_KEYWORDS,
     RECENT_MONTHS,
@@ -403,6 +404,82 @@ if selected:
         shown = spot_names[:10]
         more_suffix = f" 외 {len(spot_names) - 10}곳" if len(spot_names) > 10 else ""
         st.caption(f"📍 {', '.join(shown)}{more_suffix}")
+
+    st.subheader("관광 방문 현황")
+
+    visitors, visitors_sigungu_nm = get_visitors_for_address(addr)
+    if visitors is None:
+        if visitors_sigungu_nm is None:
+            st.info("검색한 위치의 주소에서 시군구를 알아내지 못해 방문자 데이터를 찾을 수 없습니다")
+        else:
+            st.info(
+                f"'{visitors_sigungu_nm}'은 방문자 통계 집계 대상이 아닙니다 "
+                "(출장소 등 일부 지역은 한국관광공사 데이터랩에 포함되지 않습니다)"
+            )
+    else:
+        pattern = visitors["pattern"]
+        quartiles = visitors["quartiles"]
+
+        if pattern is not None:
+            st.markdown(
+                f'<div class="highlight-line">🧭 외지인 비중 {visitors["outsider_ratio"]:.1f}% · '
+                f'[{pattern["label"]}] {pattern["detail"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+        visitor_col1, visitor_col2, visitor_col3 = st.columns(3)
+        kpi_card(
+            visitor_col1,
+            "전체 방문자",
+            f"{visitors['visitors_total']:,}",
+            "명",
+            "teal",
+            sub=f"{visitors['days']}일 누적",
+        )
+        kpi_card(
+            visitor_col2,
+            "외지인 비중",
+            f"{visitors['outsider_ratio']:.1f}",
+            "%",
+            "lavender",
+            sub=(
+                f"전국 중위 {quartiles['outsider_ratio_median']:.1f}% 대비 "
+                f"{visitors['outsider_ratio'] - quartiles['outsider_ratio_median']:+.1f}%p"
+                if quartiles
+                else None
+            ),
+        )
+        kpi_card(
+            visitor_col3,
+            "주말 유입 배수",
+            f"{visitors['weekend_lift']:.2f}",
+            "배",
+            "tangerine",
+            sub=(
+                f"평일 {visitors['outsider_weekday_avg']:,}명 → "
+                f"주말 {visitors['outsider_weekend_avg']:,}명"
+            ),
+        )
+
+        st.caption(
+            f"현지인 {visitors['visitors_local']:,}명 · "
+            f"외지인 {visitors['visitors_outsider']:,}명 · "
+            f"외국인 {visitors['visitors_foreign']:,}명"
+        )
+
+        base_start = visitors["base_start_ymd"]
+        base_end = visitors["base_end_ymd"]
+        st.caption(
+            f"※ 기준 기간: {base_start[:4]}-{base_start[4:6]}-{base_start[6:]} ~ "
+            f"{base_end[:4]}-{base_end[4:6]}-{base_end[6:]} ({visitors['days']}일) · "
+            f"{DATA_CAVEAT}"
+        )
+        if quartiles:
+            st.caption(
+                f"※ '{pattern['label']}' 판단은 전국 {quartiles['sigungu_count']}개 시군구 분포 기준입니다 "
+                f"(외지인 비중 3사분위 {quartiles['outsider_ratio_q3']:.1f}%, "
+                f"주말 배수 3사분위 {quartiles['weekend_lift_q3']:.2f}배 이상이면 상위권)"
+            )
 
     st.subheader("생활권 주변 시설 (카카오)")
 
