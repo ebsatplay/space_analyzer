@@ -170,6 +170,85 @@ def _collect_candidate_places(region_name, radius_m=CANDIDATE_SEARCH_RADIUS_M):
     return places
 
 
+def _base_ym(datetime_text):
+    """카카오 datetime('2026-10-16T09:42:20.000+09:00')에서 'YYYY-MM'만 뽑는다."""
+    if not isinstance(datetime_text, str) or len(datetime_text) < 7:
+        return None
+    return datetime_text[:7]
+
+
+def _previous_ym(base_ym):
+    """'2026-01' -> '2025-12' 처럼 한 달 앞의 YYYY-MM을 만든다."""
+    year, month = int(base_ym[:4]), int(base_ym[5:7])
+    if month == 1:
+        return f"{year - 1}-12"
+    return f"{year}-{month - 1:02d}"
+
+
+def _complete_months(today=None):
+    """집계가 끝난 달(= 이번 달 제외)과 이번 달을 함께 돌려준다.
+
+    이번 달은 아직 진행 중이라 글 수가 덜 쌓여 있다. 그대로 지난달과 비교하면
+    모든 공간이 '지는 중'으로 나오기 때문에, 증감은 완결된 두 달로 계산하고
+    이번 달은 따로 표시한다.
+    """
+    today = today or date.today()
+    current = f"{today.year}-{today.month:02d}"
+    last_complete = _previous_ym(current)
+    return current, last_complete, _previous_ym(last_complete)
+
+
+def summarize_monthly(places, today=None):
+    """월별 언급을 바탕으로 뜨는 곳/지는 곳을 정리한다.
+
+    반환: dict
+      - current_ym / last_complete_ym / prev_ym / yoy_ym: 비교에 쓴 달
+        (yoy_ym은 전년 같은 달 - 계절성 때문에 전월 비교만으로는 오독하기 쉽다)
+      - rising / falling: 완결된 두 달 사이 언급이 늘어난/줄어든 공간
+      - months: 집계에 등장한 달 목록 (최신순)
+    """
+    current_ym, last_complete_ym, prev_ym = _complete_months(today)
+
+    months = sorted(
+        {ym for place in places for ym in place.get("monthly_mentions", {})}, reverse=True
+    )
+
+    # 전년 같은 달 (계절성 때문에 전월 비교만으로는 오독하기 쉽다)
+    yoy_ym = f"{int(last_complete_ym[:4]) - 1}-{last_complete_ym[5:7]}"
+
+    changed = []
+    for place in places:
+        monthly = place.get("monthly_mentions", {})
+        last_value = monthly.get(last_complete_ym, 0)
+        prev_value = monthly.get(prev_ym, 0)
+        if not last_value and not prev_value:
+            continue
+        yoy_value = monthly.get(yoy_ym)
+        changed.append({
+            "name": place["name"],
+            "place_type": place["place_type"],
+            "last_count": last_value,
+            "prev_count": prev_value,
+            "delta": last_value - prev_value,
+            "current_count": monthly.get(current_ym, 0),
+            "yoy_count": yoy_value,
+            "yoy_delta": None if yoy_value is None else last_value - yoy_value,
+        })
+
+    rising = sorted([c for c in changed if c["delta"] > 0], key=lambda c: -c["delta"])
+    falling = sorted([c for c in changed if c["delta"] < 0], key=lambda c: c["delta"])
+
+    return {
+        "current_ym": current_ym,
+        "last_complete_ym": last_complete_ym,
+        "prev_ym": prev_ym,
+        "yoy_ym": yoy_ym,
+        "rising": rising,
+        "falling": falling,
+        "months": months,
+    }
+
+
 def get_popular_places(region_name, purpose_keyword, progress_callback=None):
     """지역+목적 블로그/카페 글에서 자주 언급되는 공간을 언급 횟수 순으로 집계한다.
 
@@ -178,10 +257,12 @@ def get_popular_places(region_name, purpose_keyword, progress_callback=None):
 
     반환: dict
       - places: [{"name","place_type","category","lat","lon","mention_count",
-                  "genuine_count","normal_count","ad_count","trust_score"}, ...]
+                  "genuine_count","normal_count","ad_count","trust_score",
+                  "monthly_mentions"}, ...]
         (진짜후기+일반 위주 점수 순으로 정렬)
       - meta: {"query","blog_count","cafe_count","candidate_count","mentioned_count",
-               "searched_on","doc_type_counts","place_type_counts"}
+               "searched_on","doc_type_counts","place_type_counts",
+               "dated_doc_count","undated_doc_count","monthly"}
     """
     query = f"{region_name} {purpose_keyword}"
 
@@ -198,7 +279,10 @@ def get_popular_places(region_name, purpose_keyword, progress_callback=None):
 
     # 글 단위로 텍스트를 만들고 신뢰도 신호로 분류한다 (공간별 언급을 유형별로 나누기 위해)
     docs = [
-        {"text": f"{item['title']} {item['contents']}"}
+        {
+            "text": f"{item['title']} {item['contents']}",
+            "base_ym": _base_ym(item.get("datetime")),
+        }
         for item in blog_items + cafe_items
     ]
     for doc in docs:
@@ -242,11 +326,16 @@ def get_popular_places(region_name, purpose_keyword, progress_callback=None):
         place["core_name"] = core_name
 
         counts = {"진짜후기": 0, "일반": 0, "광고성": 0}
+        monthly = {}
         for doc in docs:
             hits = doc["text"].count(match_name)
             if hits:
                 counts[doc["doc_type"]] += hits
+                # 글 작성월별로도 쌓아 월별 추이를 낸다 (날짜 없는 글은 집계에서 빠진다)
+                if doc["base_ym"]:
+                    monthly[doc["base_ym"]] = monthly.get(doc["base_ym"], 0) + hits
 
+        place["monthly_mentions"] = dict(sorted(monthly.items(), reverse=True))
         place["genuine_count"] = counts["진짜후기"]
         place["normal_count"] = counts["일반"]
         place["ad_count"] = counts["광고성"]
@@ -265,6 +354,11 @@ def get_popular_places(region_name, purpose_keyword, progress_callback=None):
         if place["mention_count"] > 0:
             type_counts[place["place_type"]] = type_counts.get(place["place_type"], 0) + 1
     meta["place_type_counts"] = type_counts
+
+    # 날짜가 없는 글은 월별 집계에서 빠지므로 몇 건인지 알려준다
+    meta["dated_doc_count"] = sum(1 for d in docs if d["base_ym"])
+    meta["undated_doc_count"] = sum(1 for d in docs if not d["base_ym"])
+    meta["monthly"] = summarize_monthly(places)
 
     return {"places": places, "meta": meta}
 

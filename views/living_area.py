@@ -663,16 +663,68 @@ if selected:
                     unsafe_allow_html=True,
                 )
 
-        if region_detail["similar_regions"]:
-            st.markdown(
-                "**🔗 관광 성격이 비슷한 지역** &nbsp; "
-                + " · ".join(region_detail["similar_regions"])
-            )
-            st.caption("데이터랩이 관광 지표가 유사하다고 묶은 지역입니다 (사업 사례 비교용)")
-
         st.caption(f"※ 출처: {DATALAB_SOURCE} · {TREND_CAVEAT}")
+        st.caption("※ 관광 성격이 비슷한 지역은 아래 '유사 레퍼런스'에서 봅니다")
 
-    st.subheader("전국 관광 트렌드 (참고)")
+    st.subheader("유사 레퍼런스 (참고할 지역·시설)")
+
+    st.caption(
+        "벤치마킹할 **지역**과, 생활권 안에서 이미 같은 수요를 받고 있는 **시설**을 모았습니다. "
+        "출처가 서로 달라 기준도 다릅니다 - 아래 각 항목에 표기했습니다."
+    )
+
+    st.markdown("**🔗 관광 성격이 비슷한 지역**")
+    if region_detail is not None and region_detail["similar_regions"]:
+        st.markdown(
+            f"{region_detail['region_nm']} ≈ "
+            + " · ".join(region_detail["similar_regions"])
+        )
+        st.caption(
+            f"기준: {DATALAB_SOURCE}이 관광 지표(방문자·체류·소비)가 유사하다고 묶은 지역입니다. "
+            "사업 사례·성과를 비교할 후보로 쓰세요."
+        )
+    else:
+        st.caption(
+            "이 지역은 유사 지역 데이터가 등록되지 않았습니다 "
+            "(데이터랩 지역 상세가 등록된 지역에서만 제공)"
+        )
+
+    st.markdown("**🏢 생활권 내 유사·경쟁 시설**")
+    reference_col1, reference_col2, reference_col3 = st.columns(3)
+    kpi_card(
+        reference_col1,
+        "키즈카페 (민간 경쟁)",
+        f"{kakao_counts['키즈카페']}",
+        "개",
+        "rose",
+    )
+    kpi_card(
+        reference_col2,
+        "도서관 (공공)",
+        f"{library_counts['주요도서관'] + library_counts['작은도서관']}",
+        "개",
+        "amber",
+    )
+    kpi_card(reference_col3, "공식 관광지", f"{tourism_count}", "개", "lavender")
+    st.caption(
+        "기준: 키즈카페는 **카카오 장소검색**(실시간, 민간시설) · "
+        "도서관·관광지는 **공공데이터포털 표준데이터**(분기~연 단위 갱신)입니다. "
+        "앞 섹션들에 나온 같은 수치를 '참고할 시설' 관점으로 다시 모은 것입니다."
+    )
+
+    st.subheader("인기·트렌드")
+
+    st.caption(
+        "인기를 재는 방법이 셋이고 각각 답하는 질문이 다릅니다. "
+        "**검색 빅데이터**(전국에서 어디를 많이 찾나)와 "
+        "**블로그·카페 언급**(이 지역에서 무엇이 회자되나)은 서로 다른 신호입니다."
+    )
+
+    st.markdown("**📈 전국 관심도 월별 추이 — 계절성**")
+    st.caption(
+        "기준: 데이터랩 **검색 빅데이터**(전국 단위 상대지수). "
+        "\"언제 사람들이 국내관광에 관심을 갖나\"에 답합니다 - 개장·행사 시기 잡을 때 씁니다."
+    )
 
     monthly = get_monthly_interest()
     if monthly is None:
@@ -745,9 +797,16 @@ if selected:
                 use_container_width=True,
             )
 
+    st.markdown("**📊 전국 검색순위 TOP — 큰 그림**")
+    st.caption(
+        "기준: 데이터랩 **검색 빅데이터**(전국 관광지 순위). "
+        "\"전국에서 어디를 많이 찾나\"에 답합니다 - 우리 지역이 들어 있는지, "
+        "어떤 유형이 상위인지 보는 용도입니다. 이 지역 맞춤 추천은 아닙니다."
+    )
+
     rank_top = get_search_rank_top(10)
     if rank_top is not None:
-        with st.expander("🔍 전국 관광지 검색순위 TOP 10"):
+        with st.expander("전국 관광지 검색순위 TOP 10 펼쳐보기"):
             rank_table = rank_top.rename(columns={
                 "rank": "순위",
                 "place_name": "관광지명",
@@ -762,7 +821,21 @@ if selected:
             )
             st.caption("전국 TOP 100 중 상위 10곳입니다")
 
-    st.caption(f"※ 출처: {DATALAB_SOURCE} · {DATALAB_CAVEAT}")
+    st.caption(f"※ 위 두 항목 출처: {DATALAB_SOURCE} · {DATALAB_CAVEAT}")
+
+    st.markdown("**🔍 목적별 인기공간 — 이 지역 맞춤**")
+    st.caption(
+        "기준: 카카오 **블로그·카페 언급**(검색 빅데이터가 아님). "
+        "\"이 지역에서 아이랑 갈 만한 곳으로 무엇이 회자되나\"에 답합니다. "
+        "실제 방문객 수가 아니라 온라인에서 글이 많이 쓰인 정도이고, "
+        "**월별 언급 변화(↑뜨는 곳/↓지는 곳)**까지 볼 수 있습니다."
+    )
+    region_label = region_detail["region_nm"] if region_detail else (datalab_sigungu_nm or name)
+    st.info(
+        f"왼쪽 메뉴의 **인기 공간**에서 '{region_label}' + 목적 키워드(예: 어린이, 가족 나들이)로 "
+        "분석하면 언급 순위와 월별 변화를 볼 수 있습니다. "
+        "블로그·카페를 150건씩 읽어오는 작업이라 별도 화면으로 두었습니다."
+    )
 
     st.subheader("지역 사업 뉴스·이슈")
 

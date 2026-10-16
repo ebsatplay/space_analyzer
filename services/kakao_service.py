@@ -187,7 +187,10 @@ def _clean_text(text):
 def _search_documents(url, query, size, page, name_field):
     """블로그/카페 검색 공통 로직. 실패 시 None을 반환한다.
 
-    반환: {"total_count": N, "is_end": bool, "items": [{"title","contents","url",name_field}, ...]}
+    datetime은 글 작성 시각이다 (월별 언급 추이를 내기 위해 함께 담는다).
+
+    반환: {"total_count": N, "is_end": bool,
+           "items": [{"title","contents","url","datetime",name_field}, ...]}
     """
     params = {"query": query, "size": min(size, 50), "sort": "accuracy", "page": page}
     data = _request(url, params)
@@ -199,6 +202,7 @@ def _search_documents(url, query, size, page, name_field):
             "title": _clean_text(doc["title"]),
             "contents": _clean_text(doc["contents"]),
             "url": doc["url"],
+            "datetime": doc.get("datetime", ""),
             name_field: doc.get(name_field, ""),
         }
         for doc in data.get("documents", [])
@@ -215,7 +219,7 @@ def _search_documents(url, query, size, page, name_field):
 def search_blog(query, size=50, page=1):
     """카카오 블로그 검색. 실패 시 None을 반환한다.
 
-    반환: {"total_count", "is_end", "items": [{"title","contents","url","blogname"}, ...]}
+    반환: {"total_count", "is_end", "items": [{"title","contents","url","datetime","blogname"}, ...]}
     """
     return _search_documents(BLOG_SEARCH_URL, query, size, page, "blogname")
 
@@ -223,7 +227,7 @@ def search_blog(query, size=50, page=1):
 def search_cafe(query, size=50, page=1):
     """카카오 카페 검색. 실패 시 None을 반환한다.
 
-    반환: {"total_count", "is_end", "items": [{"title","contents","url","cafename"}, ...]}
+    반환: {"total_count", "is_end", "items": [{"title","contents","url","datetime","cafename"}, ...]}
     """
     return _search_documents(CAFE_SEARCH_URL, query, size, page, "cafename")
 
@@ -272,7 +276,7 @@ def search_news(query, size=20, page=1, sort="accuracy"):
 def search_blog_all(query, max_docs=100):
     """블로그 검색을 여러 페이지 모아서 최대 max_docs개까지 반환한다.
 
-    반환: [{"title","contents","url","blogname"}, ...] (실패/결과없음 시 빈 리스트)
+    반환: [{"title","contents","url","datetime","blogname"}, ...] (실패/결과없음 시 빈 리스트)
     """
     all_items = []
     page = 1

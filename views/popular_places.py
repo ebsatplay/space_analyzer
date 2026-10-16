@@ -4,6 +4,7 @@
 """
 
 import folium
+import pandas as pd
 import streamlit as st
 from folium.plugins import MarkerCluster
 from streamlit_folium import folium_static
@@ -198,6 +199,77 @@ if result:
                 f"</div>"
             )
         st.markdown('<div class="place-grid">' + "".join(card_divs) + "</div>", unsafe_allow_html=True)
+
+        st.subheader("월별 언급 변화")
+
+        monthly = meta.get("monthly")
+        if not monthly or not monthly["months"]:
+            st.info("글에 작성 날짜가 없어 월별 추이를 낼 수 없습니다")
+        else:
+            st.caption(
+                f"집계가 끝난 **{monthly['last_complete_ym']}**을 직전 달 "
+                f"**{monthly['prev_ym']}**과 비교합니다. "
+                f"이번 달({monthly['current_ym']})은 아직 진행 중이라 글이 덜 쌓여 있어 "
+                "비교에서 빼고 따로 보여줍니다."
+            )
+
+            rise_col, fall_col = st.columns(2)
+            with rise_col:
+                st.markdown("**↑ 뜨는 곳**")
+                if not monthly["rising"]:
+                    st.caption("전월 대비 언급이 늘어난 곳이 없습니다")
+                for item in monthly["rising"][:5]:
+                    yoy = (
+                        f" · 전년동월 {item['yoy_count']}회 대비 {item['yoy_delta']:+d}"
+                        if item["yoy_count"] is not None
+                        else " · 전년동월 자료 없음"
+                    )
+                    st.markdown(
+                        f"**{item['name']}** &nbsp; {item['prev_count']} → "
+                        f"**{item['last_count']}회** (+{item['delta']})"
+                        f"<br><span style='color:#8A8178;font-size:0.82rem'>"
+                        f"이번 달 {item['current_count']}회{yoy}</span>",
+                        unsafe_allow_html=True,
+                    )
+            with fall_col:
+                st.markdown("**↓ 지는 곳**")
+                if not monthly["falling"]:
+                    st.caption("전월 대비 언급이 줄어든 곳이 없습니다")
+                for item in monthly["falling"][:5]:
+                    yoy = (
+                        f" · 전년동월 {item['yoy_count']}회 대비 {item['yoy_delta']:+d}"
+                        if item["yoy_count"] is not None
+                        else " · 전년동월 자료 없음"
+                    )
+                    st.markdown(
+                        f"**{item['name']}** &nbsp; {item['prev_count']} → "
+                        f"**{item['last_count']}회** ({item['delta']})"
+                        f"<br><span style='color:#8A8178;font-size:0.82rem'>"
+                        f"이번 달 {item['current_count']}회{yoy}</span>",
+                        unsafe_allow_html=True,
+                    )
+
+            st.caption(
+                "⚠️ 전월 대비만 보면 계절성을 하락으로 오독하기 쉽습니다 "
+                "(여름방학에 몰렸다가 9월에 줄어드는 식). **전년 같은 달**과 함께 보세요."
+            )
+            if meta.get("undated_doc_count"):
+                st.caption(
+                    f"※ 날짜가 없는 글 {meta['undated_doc_count']}건은 월별 집계에서 빠졌습니다 "
+                    f"(날짜 있는 글 {meta['dated_doc_count']}건 기준)"
+                )
+
+            with st.expander("📅 공간별 월별 언급 표로 보기"):
+                recent_months = monthly["months"][:12]
+                rows = []
+                for place in mentioned[:TOP_COUNT]:
+                    row = {"공간": place["name"], "총 언급": place["mention_count"]}
+                    row.update(
+                        {ym: place.get("monthly_mentions", {}).get(ym, 0) for ym in recent_months}
+                    )
+                    rows.append(row)
+                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                st.caption("최근 12개월만 표시합니다")
 
         st.subheader("지도")
         center_lat = sum(p["lat"] for p in top_places) / len(top_places)
