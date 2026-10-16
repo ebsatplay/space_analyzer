@@ -12,3 +12,5 @@ altair>=5.0
 # 주민 니즈 분석 (사회조사 보고서 PDF -> Claude API)
 anthropic>=1.0
 pypdf>=5.0
+# 대상지 보고서 Word 생성
+python-docx>=1.0

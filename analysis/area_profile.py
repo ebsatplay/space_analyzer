@@ -13,6 +13,7 @@ from analysis.living_area import _haversine_km
 from services.kakao_service import search_places_nearby
 
 POPULATION_PATH = "data/processed/population.parquet"
+HOUSEHOLDS_PATH = "data/processed/households.parquet"
 MAPPING_PATH = "data/reference/adm_cd_mapping.csv"
 SCHOOLS_PATH = "data/processed/schools.parquet"
 STUDENTS_PATH = "data/processed/students.parquet"
@@ -84,6 +85,60 @@ def get_living_area_population(dongs, population_path=POPULATION_PATH, mapping_p
         "age_0_9": int(pop_matched["age_0_9"].sum()),
         "age_10_14": int(pop_matched["age_10_14"].sum()),
         "age_30_49": int(pop_matched["age_30_49"].sum()),
+        "matched_count": len(matched),
+        "unmatched": unmatched,
+    }
+
+
+def get_living_area_households(dongs, households_path=HOUSEHOLDS_PATH, mapping_path=MAPPING_PATH):
+    """생활권에 포함된 행정동의 세대수를 합산한다.
+
+    인구와 같은 행안부 adm_cd 체계라 매핑 방식도 같다 (경계 ADM_CD -> adm_cd).
+    가족 가구 비중은 동별 비율을 평균내지 않고 합산한 세대수로 다시 계산한다
+    (동마다 세대 규모가 달라서 단순 평균은 작은 동에 과대 가중치를 준다).
+
+    반환: dict (total_households, household_1_2, household_3_4, household_5plus,
+                family_ratio, matched_count, unmatched)
+    """
+    empty = {
+        "total_households": 0,
+        "household_1_2": 0,
+        "household_3_4": 0,
+        "household_5plus": 0,
+        "family_ratio": 0.0,
+        "matched_count": 0,
+        "unmatched": [],
+    }
+    if dongs.empty:
+        return empty
+
+    try:
+        households = pd.read_parquet(households_path)
+    except (FileNotFoundError, OSError):
+        return empty
+
+    mapping = pd.read_csv(mapping_path, dtype=str)
+    merged = dongs[["ADM_CD", "ADM_NM"]].merge(
+        mapping[["adm_cd", "sgis_adm_cd"]],
+        left_on="ADM_CD",
+        right_on="sgis_adm_cd",
+        how="left",
+    )
+    matched = merged[merged["adm_cd"].notna()]
+    unmatched = list(
+        merged.loc[merged["adm_cd"].isna(), ["ADM_CD", "ADM_NM"]].itertuples(index=False, name=None)
+    )
+
+    subset = households[households["adm_cd"].isin(matched["adm_cd"])]
+    total = int(subset["total_households"].sum())
+    family = int(subset["household_3_4"].sum())
+
+    return {
+        "total_households": total,
+        "household_1_2": int(subset["household_1_2"].sum()),
+        "household_3_4": family,
+        "household_5plus": int(subset["household_5plus"].sum()),
+        "family_ratio": round(family / total * 100, 1) if total else 0.0,
         "matched_count": len(matched),
         "unmatched": unmatched,
     }

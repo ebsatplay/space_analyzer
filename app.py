@@ -22,6 +22,7 @@ pages = {
         st.Page("views/backyard.py", title="배후권 비교", icon="🗺️"),
         st.Page("views/popular_places.py", title="인기 공간", icon="✨"),
         st.Page("views/survey_needs.py", title="주민 니즈 분석", icon="🗣️"),
+        st.Page("views/target_report.py", title="대상지 보고서", icon="📄"),
     ],
     "설정": [
         st.Page("views/data_management.py", title="데이터 관리", icon="⚙️"),
