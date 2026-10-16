@@ -1199,4 +1199,4 @@ if selected:
         table["거리(km)"] = table["거리(km)"].round(2)
         st.dataframe(table, hide_index=True, use_container_width=True)
 else:
-    st.info("왼쪽 사이드바에서 기준 주소나 장소명을 검색해주세요.")
+    st.info("기준 주소나 장소명을 검색해주세요.")
