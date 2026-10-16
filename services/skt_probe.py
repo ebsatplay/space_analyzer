@@ -15,6 +15,8 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 API_URL = "https://apis.openapi.sk.com/puzzle/place/meta/pois"
 OUTPUT_DIR = os.path.join("data", "processed")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "skt_pois.csv")
@@ -90,10 +92,10 @@ def stop_and_save(all_contents, resume_offset, total_count, last_success_offset,
 
 def main():
     load_dotenv()
-    app_key = os.getenv("SKT_APP_KEY")
+    app_key = get_secret("SKT_APP_KEY")
 
     if not app_key:
-        print("SKT_APP_KEY가 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
+        print("SKT_APP_KEY가 설정되어 있지 않습니다. 로컬은 .env, 배포는 Streamlit secrets를 확인해주세요.")
         return
 
     offset, all_contents = load_resume_state()

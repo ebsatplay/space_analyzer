@@ -31,8 +31,14 @@ GRID_COLOR = "#E1E0D9"
 TEXT_COLOR = "#4A4238"
 MUTED_COLOR = "#8A8178"
 
+# 폰트 경고를 매 차트마다 찍지 않도록 한 번만 남긴다
+_FONT_WARNED = False
+
 MAP_SIZE = (960, 640)
 MAP_TILE_URL = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+# OSM 타일 이용 정책은 앱을 식별할 수 있는 User-Agent를 요구한다. staticmap 기본값은
+# 'StaticMap'이라 차단될 수 있어서 직접 지정한다 (배포 환경에서 특히 위험하다).
+MAP_USER_AGENT = "SpaceAnalysisLab/1.0 (+https://github.com/sooave00/space_analyzer)"
 # 원을 선분으로 근사할 때 쓰는 각도 간격
 CIRCLE_STEP_DEG = 5
 # 지도에 찍을 시설 마커 상한 (너무 많으면 지도가 가려진다)
@@ -43,20 +49,46 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 
+# 배포(리눅스)에는 packages.txt 로 fonts-nanum 을 깔아 NanumGothic 계열이 생긴다.
+# 로컬 윈도우는 맑은 고딕, 맥은 AppleGothic 을 쓴다.
+KOREAN_FONT_CANDIDATES = (
+    "Malgun Gothic",
+    "NanumGothic",
+    "NanumBarunGothic",
+    "NanumSquare",
+    "Noto Sans KR",
+    "Noto Sans CJK KR",
+    "AppleGothic",
+    "Gulim",
+)
+
+
 def _korean_font():
     """설치된 한글 폰트 중 쓸 수 있는 것을 고른다 (없으면 None)."""
     available = {font.name for font in fm.fontManager.ttflist}
-    for candidate in ("Malgun Gothic", "NanumGothic", "Noto Sans KR", "AppleGothic", "Gulim"):
+    for candidate in KOREAN_FONT_CANDIDATES:
         if candidate in available:
             return candidate
     return None
 
 
 def _apply_chart_style():
-    """차트 공통 스타일. 한글 폰트를 지정하지 않으면 글자가 네모로 나온다."""
+    """차트 공통 스타일. 한글 폰트를 지정하지 않으면 글자가 네모(두부)로 나온다.
+
+    폰트를 못 찾으면 예외 없이 조용히 깨지므로(차트는 그려지는데 글자만 네모),
+    한 번 경고를 남겨 배포 환경에서 바로 알 수 있게 한다.
+    """
     font = _korean_font()
     if font:
         plt.rcParams["font.family"] = font
+    else:
+        global _FONT_WARNED
+        if not _FONT_WARNED:
+            print(
+                "한글 폰트를 찾지 못했습니다. 차트의 한글이 네모로 나옵니다. "
+                "배포 환경이라면 packages.txt 에 fonts-nanum 이 있는지 확인하세요."
+            )
+            _FONT_WARNED = True
     plt.rcParams["axes.unicode_minus"] = False  # 음수 기호가 깨지는 것을 막는다
     plt.rcParams["figure.dpi"] = 150
 
@@ -88,7 +120,12 @@ def render_living_area_map(lat, lon, radius_km, schools=None, sites=None):
     try:
         from staticmap import CircleMarker, Line, StaticMap
 
-        area_map = StaticMap(MAP_SIZE[0], MAP_SIZE[1], url_template=MAP_TILE_URL)
+        area_map = StaticMap(
+            MAP_SIZE[0],
+            MAP_SIZE[1],
+            url_template=MAP_TILE_URL,
+            headers={"User-Agent": MAP_USER_AGENT},
+        )
         area_map.add_line(Line(_circle_points(lat, lon, radius_km), BRAND_COLOR, 3))
 
         if schools is not None and len(schools):

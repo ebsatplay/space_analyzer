@@ -9,6 +9,8 @@ import sys
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 API_URL = "https://apis.openapi.sk.com/puzzle/place/meta/pois"
 
 # Windows 콘솔에서 한글 출력이 깨지는 것을 방지
@@ -18,7 +20,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def main():
     load_dotenv()
-    app_key = os.getenv("SKT_APP_KEY") or ""
+    app_key = get_secret("SKT_APP_KEY") or ""
 
     print(f"키 길이: {len(app_key)}자")
 

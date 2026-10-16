@@ -13,6 +13,8 @@ from datetime import date
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 ADDRESS_API_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 KEYWORD_API_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 BLOG_SEARCH_URL = "https://dapi.kakao.com/v2/search/blog"
@@ -77,10 +79,10 @@ def _request(url, params):
     실패 시 None을 반환한다.
     """
     load_dotenv()
-    api_key = os.getenv("KAKAO_REST_KEY")
+    api_key = get_secret("KAKAO_REST_KEY")
 
     if not api_key:
-        print("KAKAO_REST_KEY가 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
+        print("KAKAO_REST_KEY가 설정되어 있지 않습니다. 로컬은 .env, 배포는 Streamlit secrets를 확인해주세요.")
         return None
 
     headers = {"Authorization": f"KakaoAK {api_key}"}

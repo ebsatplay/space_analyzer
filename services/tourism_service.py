@@ -23,6 +23,8 @@ from datetime import date, timedelta
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 VISITOR_API_URL = "https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList"
 
 MOBILE_OS = "ETC"
@@ -47,9 +49,9 @@ class TourismApiError(Exception):
 
 
 def _api_key():
-    key = os.getenv("DATA_GO_KR_KEY")
+    key = get_secret("DATA_GO_KR_KEY")
     if not key:
-        print("DATA_GO_KR_KEY가 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
+        print("DATA_GO_KR_KEY가 설정되어 있지 않습니다. 로컬은 .env, 배포는 Streamlit secrets를 확인해주세요.")
     return key
 
 

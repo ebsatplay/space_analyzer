@@ -1,6 +1,7 @@
 streamlit
 requests
 pandas
+numpy
 python-dotenv
 folium
 streamlit-folium

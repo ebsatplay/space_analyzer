@@ -11,6 +11,8 @@ import sys
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 BLOG_SEARCH_URL = "https://openapi.naver.com/v1/search/blog.json"
 
 TAG_PATTERN = re.compile(r"<[^>]+>")
@@ -32,11 +34,11 @@ def search_blog(query, display=100):
     실패 시 None을 반환한다.
     """
     load_dotenv()
-    client_id = os.getenv("NAVER_CLIENT_ID")
-    client_secret = os.getenv("NAVER_CLIENT_SECRET")
+    client_id = get_secret("NAVER_CLIENT_ID")
+    client_secret = get_secret("NAVER_CLIENT_SECRET")
 
     if not client_id or not client_secret:
-        print("NAVER_CLIENT_ID/NAVER_CLIENT_SECRET이 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
+        print("NAVER_CLIENT_ID/NAVER_CLIENT_SECRET이 설정되어 있지 않습니다. 로컬은 .env, 배포는 Streamlit secrets를 확인해주세요.")
         return None
 
     headers = {

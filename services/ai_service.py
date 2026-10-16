@@ -23,6 +23,8 @@ from datetime import datetime
 import anthropic
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 MODEL = "claude-opus-5-5"
 
 # 응답을 끝까지 받기 위한 상한. 고령군 실측에서 15,308토큰이 나와 16,000으로는 아슬아슬해
@@ -138,9 +140,15 @@ class AiServiceError(Exception):
 
 
 def _client():
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise AiServiceError("ANTHROPIC_API_KEY가 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
-    return anthropic.Anthropic()
+    # SDK는 환경변수에서 키를 읽는데, 배포 환경에는 .env가 없고 st.secrets에만 있다.
+    # 그래서 찾은 키를 명시적으로 넘긴다.
+    api_key = get_secret("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise AiServiceError(
+            "ANTHROPIC_API_KEY가 설정되어 있지 않습니다. "
+            "로컬은 .env, 배포는 Streamlit secrets를 확인해주세요."
+        )
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def calculate_cost(usage):

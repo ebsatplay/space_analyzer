@@ -13,6 +13,8 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+from services.config import get_secret
+
 BASE_URL = (
     "https://kosis.kr/openapi/Param/statisticsParameterData.do"
     "?method=getList"
@@ -31,10 +33,10 @@ if hasattr(sys.stdout, "reconfigure"):
 def probe_population():
     """KOSIS 인구 API를 호출해서 응답을 DataFrame으로 반환한다. 실패 시 None을 반환한다."""
     load_dotenv()
-    api_key = os.getenv("KOSIS_API_KEY")
+    api_key = get_secret("KOSIS_API_KEY")
 
     if not api_key:
-        print("KOSIS_API_KEY가 설정되어 있지 않습니다. .env 파일을 확인해주세요.")
+        print("KOSIS_API_KEY가 설정되어 있지 않습니다. 로컬은 .env, 배포는 Streamlit secrets를 확인해주세요.")
         return None
 
     url = BASE_URL.format(api_key=quote(api_key, safe=""))
