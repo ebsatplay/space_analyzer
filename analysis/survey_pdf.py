@@ -13,6 +13,9 @@
 인용하게 해서 사람이 검증할 수 있게 한다.
 """
 
+import functools
+import glob
+import os
 import re
 import sys
 
@@ -32,6 +35,12 @@ TOPIC_KEYWORDS = {
 NOISE_MARKERS = ["조 사 표", "조사표", "응답자 확인사항", "조사원 기입"]
 NOISE_PENALTY = 5
 
+# data/raw 에 미리 받아둔 사회조사 보고서를 찾을 때 쓰는 패턴
+LOCAL_SURVEY_GLOB = "data/raw/survey_*.pdf"
+# 지역명을 찾기 위해 읽을 앞쪽 페이지 수 (표지·속표지에 "OO군 사회조사"가 적혀 있다)
+REGION_SCAN_PAGES = 4
+REGION_PATTERN = re.compile(r"([가-힣]{2,6}[시군구])\s*사회조사")
+
 # 기본 토큰 예산 (입력 기준). 고령군 전체가 82K라 통째로 들어가고, 파주처럼 큰 보고서는 잘린다.
 DEFAULT_TOKEN_BUDGET = 150_000
 # 토큰 추정용 - 한국어는 글자당 약 0.85토큰으로 나왔다 (고령 96,558자 -> 81,953토큰)
@@ -40,6 +49,65 @@ CHARS_PER_TOKEN = 1.18
 # Windows 콘솔에서 한글 출력이 깨지는 것을 방지
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+
+def _detect_region_name(path):
+    """보고서 앞쪽 페이지에서 'OO군 사회조사' 같은 표기를 찾아 지역명을 알아낸다.
+
+    파일명이 로마자라(survey_goryeong_2025.pdf) 이름만으로는 지역을 알 수 없다.
+    로마자 대응표를 따로 관리하면 지역이 늘 때마다 손봐야 하므로, 보고서 내용에서
+    직접 읽는다 (앞 4페이지만 읽어 0.1초 안에 끝난다).
+    """
+    try:
+        reader = PdfReader(path)
+    except Exception:
+        return None
+    text = ""
+    for page in reader.pages[:REGION_SCAN_PAGES]:
+        text += page.extract_text() or ""
+    found = REGION_PATTERN.findall(text)
+    return found[0] if found else None
+
+
+@functools.lru_cache(maxsize=1)
+def index_local_surveys(pattern=LOCAL_SURVEY_GLOB):
+    """data/raw 의 사회조사 PDF를 훑어 {지역명: 경로} 색인을 만든다 (한 번만 읽는다)."""
+    index = {}
+    for path in sorted(glob.glob(pattern)):
+        region = _detect_region_name(path)
+        if region:
+            index[region] = path
+    return index
+
+
+def _region_stem(name):
+    """'경기도 파주시' -> '파주', '고령군' -> '고령' (끝의 시/군/구와 시도명을 떼어낸다)."""
+    text = str(name or "").strip()
+    if not text:
+        return ""
+    tail = text.split()[-1]
+    return tail[:-1] if tail and tail[-1] in "시군구" else tail
+
+
+def find_local_survey(region_name, pattern=LOCAL_SURVEY_GLOB):
+    """해당 지역의 사회조사 PDF가 data/raw 에 있으면 경로를 돌려준다.
+
+    region_name은 '파주시', '경기도 파주시', '파주' 어느 형태로 와도 맞춘다.
+
+    반환: (경로, 보고서에 적힌 지역명) 또는 없으면 (None, None)
+    """
+    index = index_local_surveys(pattern)
+    if not index:
+        return None, None
+
+    stem = _region_stem(region_name)
+    if not stem:
+        return None, None
+
+    for detected, path in index.items():
+        if _region_stem(detected) == stem:
+            return path, detected
+    return None, None
 
 
 def extract_pages(file_or_path):

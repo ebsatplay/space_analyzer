@@ -15,6 +15,7 @@ from datetime import date
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
@@ -27,6 +28,12 @@ BODY_FONT = "맑은 고딕"
 BODY_SIZE = Pt(10)
 HEADING_COLOR = RGBColor(0x3E, 0x7C, 0x91)   # 앱 테마의 청록
 MUTED_COLOR = RGBColor(0x8A, 0x81, 0x78)
+RULE_COLOR = "3E7C91"          # 표지 구분선
+TABLE_HEADER_BG = "DCEEF3"     # 표 헤더 배경 (앱 KPI 카드와 같은 연한 청록)
+TABLE_BORDER = "CDE7EE"
+
+# 본문 가로폭에 맞춘 이미지 크기 (A4 기본 여백 기준 약 6.2인치)
+IMAGE_WIDTH = Inches(6.2)
 
 # Windows 콘솔에서 한글 출력이 깨지는 것을 방지
 if hasattr(sys.stdout, "reconfigure"):
@@ -53,12 +60,28 @@ def _apply_base_style(document):
 
 
 def _add_heading(document, text, level=1):
-    """제목을 넣는다 (Word 기본 Heading 스타일은 한글 폰트가 안 먹어서 직접 서식)."""
-    paragraph = document.add_paragraph()
-    paragraph.paragraph_format.space_before = Pt(14 if level == 1 else 10)
-    paragraph.paragraph_format.space_after = Pt(6)
+    """제목을 넣는다.
+
+    Word 기본 Heading 스타일을 쓰면 탐색창·목차가 동작한다. 다만 그 스타일은 한글 폰트와
+    색이 우리 것과 달라서, 스타일만 빌리고 서식은 런에 직접 입힌다.
+    1단계 제목 아래에는 가는 구분선을 둬서 섹션 경계가 보이게 한다.
+    """
+    paragraph = document.add_paragraph(style=f"Heading {min(level, 2)}")
+    paragraph.paragraph_format.space_before = Pt(16 if level == 1 else 11)
+    paragraph.paragraph_format.space_after = Pt(4 if level == 1 else 6)
     run = paragraph.add_run(text)
-    _set_font(run, size=Pt(14 if level == 1 else 11.5), bold=True, color=HEADING_COLOR)
+    _set_font(run, size=Pt(15 if level == 1 else 11.5), bold=True, color=HEADING_COLOR)
+
+    if level == 1:
+        # 제목 문단 자체에 밑줄을 그어 구분선 역할을 하게 한다 (빈 문단을 늘리지 않으려고)
+        borders = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), "8")
+        bottom.set(qn("w:space"), "4")
+        bottom.set(qn("w:color"), RULE_COLOR)
+        borders.append(bottom)
+        paragraph._p.get_or_add_pPr().append(borders)
     return paragraph
 
 
@@ -81,13 +104,17 @@ def _add_table(document, headers, rows, column_widths=None):
     table = document.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _set_table_borders(table)
 
     header_cells = table.rows[0].cells
     for cell, header in zip(header_cells, headers):
         cell.text = ""
+        _shade_cell(cell, TABLE_HEADER_BG)
         paragraph = cell.paragraphs[0]
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_font(paragraph.add_run(str(header)), size=Pt(9.5), bold=True)
+        _set_font(
+            paragraph.add_run(str(header)), size=Pt(9.5), bold=True, color=HEADING_COLOR
+        )
 
     for row_values in rows:
         cells = table.add_row().cells
@@ -109,6 +136,81 @@ def _add_table(document, headers, rows, column_widths=None):
     return table
 
 
+def _shade_cell(cell, hex_color):
+    """셀 배경색. python-docx에 API가 없어서 XML로 직접 넣는다."""
+    shading = OxmlElement("w:shd")
+    shading.set(qn("w:val"), "clear")
+    shading.set(qn("w:color"), "auto")
+    shading.set(qn("w:fill"), hex_color)
+    cell._tc.get_or_add_tcPr().append(shading)
+
+
+def _set_table_borders(table, hex_color=TABLE_BORDER):
+    """표 테두리를 연한 색 가는 선으로 바꾼다 (기본 검정 격자는 투박하다)."""
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        element = OxmlElement(f"w:{edge}")
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), "6")        # 0.75pt
+        element.set(qn("w:space"), "0")
+        element.set(qn("w:color"), hex_color)
+        borders.append(element)
+    table._tbl.tblPr.append(borders)
+
+
+def _add_rule(document, color=RULE_COLOR, size="12"):
+    """문단 아래에 가로 구분선을 긋는다 (표지·섹션 구분용)."""
+    paragraph = document.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(4)
+    paragraph.paragraph_format.space_after = Pt(8)
+    borders = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), size)
+    bottom.set(qn("w:space"), "1")
+    bottom.set(qn("w:color"), color)
+    borders.append(bottom)
+    paragraph._p.get_or_add_pPr().append(borders)
+    return paragraph
+
+
+def _add_image(document, png_bytes, caption=None, width=IMAGE_WIDTH, missing_note=None):
+    """PNG 바이트를 본문에 넣는다.
+
+    이미지가 없으면(생성 실패) 조용히 비우지 않고 사유를 적는다 - 그래야 보고서를 받은
+    사람이 "원래 그림이 없는 보고서"로 오해하지 않는다.
+    """
+    if not png_bytes:
+        if missing_note:
+            _add_body(document, f"※ {missing_note}", size=Pt(9), color=MUTED_COLOR)
+        return None
+    paragraph = document.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.paragraph_format.space_after = Pt(4)
+    paragraph.add_run().add_picture(_io.BytesIO(png_bytes), width=width)
+    if caption:
+        caption_paragraph = document.add_paragraph()
+        caption_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        caption_paragraph.paragraph_format.space_after = Pt(8)
+        _set_font(caption_paragraph.add_run(caption), size=Pt(8.5), color=MUTED_COLOR)
+    return paragraph
+
+
+def _particle(word, with_final, without_final):
+    """받침 유무에 따라 조사를 고른다 ('김해시로' / '고령군으로').
+
+    지역명을 문장에 넣을 때 조사를 고정하면 '김해시으로'처럼 어색해진다.
+    """
+    text = str(word or "").strip()
+    if not text:
+        return without_final
+    last = text[-1]
+    if not ("가" <= last <= "힣"):
+        return without_final
+    has_final = (ord(last) - ord("가")) % 28 != 0
+    return with_final if has_final else without_final
+
+
 def _num(value):
     """천단위 쉼표."""
     return f"{value:,}"
@@ -123,40 +225,63 @@ def _ymd(value):
 
 
 def _build_cover(document, overview):
-    """표지 - 대상지명 + 작성일 + 브랜드."""
-    for _ in range(6):
-        document.add_paragraph()
+    """표지 - 제목 묶음은 위쪽에, 작성일·브랜드는 바닥에 붙인다.
+
+    여백을 빈 문단으로 만들면 양을 가늠하기 어렵고 쉽게 과해진다.
+    문단 간격(space_before/after)으로 조절한다.
+    """
+    label = document.add_paragraph()
+    label.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    label.paragraph_format.space_before = Pt(150)  # 제목 묶음을 위쪽 1/3 지점에 둔다
+    _set_font(label.add_run("공간 분석 리포트"), size=Pt(11), color=MUTED_COLOR)
 
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _set_font(title.add_run("대상지 조사 보고서"), size=Pt(26), bold=True, color=HEADING_COLOR)
+    title.paragraph_format.space_before = Pt(6)
+    title.paragraph_format.space_after = Pt(2)
+    _set_font(title.add_run("대상지 조사 보고서"), size=Pt(30), bold=True, color=HEADING_COLOR)
+
+    _add_rule(document, size="18")
 
     subtitle = document.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle.paragraph_format.space_before = Pt(10)
-    _set_font(subtitle.add_run(overview["place_name"]), size=Pt(18), bold=True)
+    subtitle.paragraph_format.space_before = Pt(16)
+    subtitle.paragraph_format.space_after = Pt(2)
+    _set_font(subtitle.add_run(overview["place_name"]), size=Pt(20), bold=True)
 
     if overview.get("sigungu_nm"):
         region = document.add_paragraph()
         region.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_font(region.add_run(overview["sigungu_nm"]), size=Pt(11), color=MUTED_COLOR)
+        region.paragraph_format.space_after = Pt(2)
+        _set_font(region.add_run(overview["sigungu_nm"]), size=Pt(11.5), color=MUTED_COLOR)
 
-    for _ in range(8):
-        document.add_paragraph()
+    scope = document.add_paragraph()
+    scope.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _set_font(
+        scope.add_run(
+            f"{overview['minutes']}분 생활권 · 직선 반경 약 {overview['radius_km']:.1f}km"
+        ),
+        size=Pt(10),
+        color=MUTED_COLOR,
+    )
 
+    # 작성일과 브랜드는 표지 하단에 붙인다 (브랜드는 작성일 아래가 아니라 맨 끝)
     created = document.add_paragraph()
     created.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _set_font(created.add_run(f"작성일 {overview['created_on']}"), size=Pt(10.5))
+    created.paragraph_format.space_before = Pt(260)
+    created.paragraph_format.space_after = Pt(0)
+    _set_font(created.add_run(f"작성일  {overview['created_on']}"), size=Pt(10.5))
 
     brand = document.add_paragraph()
     brand.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _set_font(brand.add_run(BRAND_NAME), size=Pt(12), bold=True, color=HEADING_COLOR)
+    brand.paragraph_format.space_before = Pt(2)
+    _set_font(brand.add_run(BRAND_NAME), size=Pt(10.5), color=MUTED_COLOR)
 
     document.add_page_break()
 
 
-def _build_overview(document, overview):
-    """1. 대상지 개요."""
+def _build_overview(document, overview, data_visuals):
+    """1. 대상지 개요 - 생활권 지도를 함께 싣는다."""
     _add_heading(document, "1. 대상지 개요")
 
     rows = [
@@ -173,17 +298,20 @@ def _build_overview(document, overview):
     ]
     _add_table(document, ["구분", "내용"], rows)
 
-    if overview["dong_names"]:
-        # 다른 시군구에 같은 이름의 동이 있으면 목록에 같은 이름이 두 번 나온다
-        # (예: 고령군 덕곡면 / 합천군 덕곡면). 중복처럼 보이지 않게 개수를 붙인다.
-        from collections import Counter
+    _add_image(
+        document,
+        data_visuals.get("map"),
+        missing_note=(
+            "생활권 지도를 생성하지 못했습니다 (지도 타일 서버에 접속하지 못했을 수 있습니다)."
+        ),
+        caption=(
+            f"생활권 지도 — 🔴 기준점 · 🔵 생활권 원(반경 약 {overview['radius_km']:.1f}km) · "
+            "🟢 학교 · 🟠 미활용 폐교 (지도 © OpenStreetMap 기여자)"
+        ),
+    )
 
-        name_counts = Counter(overview["dong_names"])
-        labels = [
-            name if count == 1 else f"{name} {count}곳"
-            for name, count in name_counts.items()
-        ]
-        _add_body(document, f"포함 행정동: {', '.join(labels)}")
+    # 행정동 이름을 전부 나열하면(파주 60분은 수백 개) 보고서가 지저분해진다.
+    # 개수는 위 개요 표의 '포함 행정동' 행에 이미 있으므로 목록은 싣지 않는다.
 
     _add_source(
         document,
@@ -192,8 +320,8 @@ def _build_overview(document, overview):
     )
 
 
-def _build_population(document, data):
-    """2. 인구·가구 현황."""
+def _build_population(document, data, data_visuals):
+    """2. 인구·가구 현황 - 연령별·세대원수별 차트를 함께 싣는다."""
     _add_heading(document, "2. 인구·가구 현황")
 
     population = data["population"]
@@ -221,6 +349,12 @@ def _build_population(document, data):
         )
     _add_body(document, " ".join(sentences))
 
+    _add_image(
+        document,
+        data_visuals.get("age_chart"),
+        missing_note="연령대별 인구 차트를 생성하지 못했습니다.",
+    )
+
     if population["unmatched"]:
         _add_body(
             document,
@@ -245,6 +379,12 @@ def _build_population(document, data):
         f"생활권 전체 세대는 {_num(households['total_households'])}세대이며, "
         f"어린이 수요층에 해당하는 3~4인 가족 가구는 "
         f"{_num(households['household_3_4'])}세대({households['family_ratio']}%)입니다.",
+    )
+
+    _add_image(
+        document,
+        data_visuals.get("household_chart"),
+        missing_note="세대원수별 세대수 차트를 생성하지 못했습니다.",
     )
 
     _add_source(
@@ -308,15 +448,24 @@ def _build_education(document, data):
     )
 
 
-def _build_facilities(document, data):
-    """4. 주변 시설 현황 - 어린이 공간 레퍼런스 + 밀도·포화도."""
+def _build_facilities(document, data, data_visuals):
+    """4. 주변 시설 현황 - 어린이 공간 레퍼런스 + 밀도·포화도 (차트 포함)."""
     _add_heading(document, "4. 주변 시설 현황")
 
     child_spaces = data["child_spaces"]
 
     _add_heading(document, "4-1. 어린이 공간 레퍼런스", level=2)
-    rows = [(name, _num(group["count"])) for name, group in child_spaces.items()]
-    _add_table(document, ["유형", "개수(개)"], rows)
+    rows = [
+        (name, _num(group["count"]), group["note"].split(" - ")[-1])
+        for name, group in child_spaces.items()
+    ]
+    _add_table(document, ["유형", "개수(개)", "성격"], rows)
+
+    _add_image(
+        document,
+        data_visuals.get("facility_chart"),
+        missing_note="어린이 공간 레퍼런스 차트를 생성하지 못했습니다.",
+    )
 
     care = child_spaces["공공 돌봄·교육"]
     program = child_spaces["프로그램 운영 공간"]
@@ -344,8 +493,27 @@ def _build_facilities(document, data):
         f"수용 200명 이상 개방시설 {site['large_facility_count']}개)입니다.",
     )
 
-    if site["items"]:
-        _add_body(document, f"부지 후보: {', '.join(site['items'][:10])}")
+    _add_heading(document, "4-2. 유형별 시설 목록", level=2)
+    listed = False
+    for name, group in child_spaces.items():
+        if not group["items"]:
+            continue
+        listed = True
+        shown = group["items"][:12]
+        more = f" 외 {len(group['items']) - 12}곳" if len(group["items"]) > 12 else ""
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(3)
+        _set_font(paragraph.add_run(f"{name} ({group['count']}개)  "), bold=True)
+        _set_font(paragraph.add_run(", ".join(shown) + more), size=Pt(9))
+    if not listed:
+        _add_body(document, "생활권 내 해당 시설이 없습니다.")
+    _add_body(
+        document,
+        "※ 유형별로 최대 12곳까지만 적었습니다. 직접 경쟁(키즈카페)은 검색 시점 기준이라 "
+        "실제 운영 여부는 확인이 필요합니다.",
+        size=Pt(9),
+        color=MUTED_COLOR,
+    )
 
     _add_source(
         document,
@@ -358,7 +526,7 @@ def _build_facilities(document, data):
     if not density:
         return
 
-    _add_heading(document, "4-2. 어린이 공간 밀도·포화도", level=2)
+    _add_heading(document, "4-3. 어린이 공간 밀도·포화도", level=2)
     benchmarks = data.get("benchmarks") or {}
     ratio = density["children_per_space"]
     rows = [
@@ -371,14 +539,39 @@ def _build_facilities(document, data):
     _add_table(document, ["구분", "값", "단위"], rows)
 
     if ratio is not None:
+        # 분포상 위치는 계산된 사실이다. 어느 구간인지와 그 구간의 경계값을 함께 적는다.
+        if density["label"] == "여유":
+            position = (
+                f"공간이 많은 쪽 하위 25% 구간"
+                f"(공간당 {benchmarks.get('ratio_q1', 0):.0f}명 이하)"
+            )
+        elif density["label"] == "부족":
+            position = (
+                f"공간이 적은 쪽 상위 25% 구간"
+                f"(공간당 {benchmarks.get('ratio_q3', 0):.0f}명 이상)"
+            )
+        else:
+            position = (
+                f"중간 50% 구간"
+                f"(공간당 {benchmarks.get('ratio_q1', 0):.0f}~"
+                f"{benchmarks.get('ratio_q3', 0):.0f}명)"
+            )
         sentence = (
-            f"공공 돌봄·교육 공간 1개당 어린이는 {_num(ratio)}명으로 "
+            f"공공 돌봄·교육 공간 1개당 어린이는 {_num(ratio)}명으로, "
             f"전국 {benchmarks.get('sigungu_count', 0)}개 시군구 분포에서 "
-            f"'{density['label']}' 구간에 해당합니다."
+            f"{position}에 해당합니다 (판정: {density['label']})."
         )
     else:
         sentence = "생활권 내 공공 돌봄·교육 공간이 없어 공간당 어린이 수를 계산할 수 없습니다."
     _add_body(document, sentence)
+
+    # 판정 구간이 사업 관점에서 무엇을 뜻하는지는 '기준에 따른 분류'이지 권고가 아니다.
+    # 사실과 섞이지 않도록 별도 문단에 기준 표기와 함께 적는다.
+    if density.get("interpretation"):
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(4)
+        _set_font(paragraph.add_run("판정 구간의 의미  "), bold=True, size=Pt(9.5))
+        _set_font(paragraph.add_run(density["interpretation"]), size=Pt(9.5))
 
     # 판정이 왜곡될 수 있는 경우는 보고서에도 반드시 남긴다 (사실이자 한계)
     if density.get("caution"):
@@ -549,13 +742,75 @@ def _build_tourism(document, data):
         top_names = ", ".join(f"{item['counterpart_nm']} {item['ratio']}%" for item in inflow[:3])
         _add_body(document, f"유입 상위 지역은 {top_names} 순입니다.")
 
-    if detail.get("similar_regions"):
-        _add_heading(document, "5-4. 관광 성격이 유사한 지역", level=2)
-        _add_body(document, f"{detail['region_nm']} ≈ {' · '.join(detail['similar_regions'])}")
-        _add_source(
+    if not detail.get("similar_regions"):
+        return
+
+    _add_heading(document, "5-4. 유사 벤치마킹 지역", level=2)
+    _add_body(document, f"{detail['region_nm']} ≈ {' · '.join(detail['similar_regions'])}")
+    _add_source(
+        document,
+        "※ 데이터랩이 관광 지표(방문자·체류·소비)가 유사하다고 묶은 지역입니다. "
+        "관광 성격이 비슷한 것이지 어린이 공간 사정이 비슷하다는 뜻은 아닙니다.",
+    )
+
+    comparison = tourism.get("similar_child_space")
+    if not comparison:
+        _add_body(
             document,
-            "※ 데이터랩이 관광 지표(방문자·체류·소비)가 유사하다고 묶은 지역입니다.",
+            "유사 지역의 어린이 공간 데이터를 찾지 못해 비교표는 싣지 못했습니다.",
+            size=Pt(9),
+            color=MUTED_COLOR,
         )
+        return
+
+    rows = []
+    for item in comparison:
+        ratio = item.get("children_per_space")
+        rows.append(
+            (
+                item["구분"],
+                item["sigungu_nm"],
+                _num(int(item["children_0_9"])),
+                _num(int(item["public_child_spaces"])),
+                _num(int(ratio)) if ratio == ratio and ratio is not None else "-",
+            )
+        )
+    _add_table(
+        document,
+        ["구분", "시군구", "0~9세(명)", "공공 어린이공간(개)", "공간당 어린이(명)"],
+        rows,
+    )
+
+    # 비슷한 지역 안에서 우리 지역이 몇 번째인지 - 계산된 순위라 사실이다
+    own = next((item for item in comparison if item["구분"] == "우리 지역"), None)
+    peers = [item for item in comparison if item["구분"] == "유사 지역"]
+    if own and peers:
+        own_spaces = int(own["public_child_spaces"])
+        space_rank = 1 + sum(
+            1 for item in peers if int(item["public_child_spaces"]) > own_spaces
+        )
+        most = max(peers, key=lambda item: int(item["public_child_spaces"]))
+        sentences = [
+            f"유사 지역을 포함한 {len(comparison)}개 시군구 중 "
+            f"{own['sigungu_nm']}의 공공 어린이 공간은 {_num(own_spaces)}개로 "
+            f"{space_rank}번째입니다."
+        ]
+        if int(most["public_child_spaces"]) > own_spaces:
+            peer_name = most["sigungu_nm"]
+            sentences.append(
+                f"가장 많은 곳은 {peer_name}"
+                f"{_particle(peer_name, '으로', '로')} "
+                f"{_num(int(most['public_child_spaces']))}개입니다 "
+                f"(0~9세 {_num(int(most['children_0_9']))}명)."
+            )
+        _add_body(document, " ".join(sentences))
+
+    _add_source(
+        document,
+        "※ 위 표는 생활권(원)이 아니라 시군구 전체 기준입니다. 공공 어린이공간은 "
+        "어린이도서관·작은도서관·공공도서관·지역아동센터의 합이며, 지역아동센터 데이터는 "
+        "지자체가 제출한 곳만 들어 있어 0개로 나오는 지역은 미제출일 수 있습니다.",
+    )
 
 
 def _build_trends(document, data):
@@ -873,16 +1128,64 @@ def _build_summary(document, data):
     )
 
 
-def build_report(data):
+def build_visuals(data, progress_callback=None):
+    """보고서에 넣을 지도·차트를 만든다. 실패한 항목은 None으로 두고 보고서는 그대로 진행한다."""
+    from analysis.report_visuals import (
+        render_age_chart,
+        render_facility_chart,
+        render_household_chart,
+        render_living_area_map,
+    )
+
+    overview = data["overview"]
+    facilities = data["facilities"]
+    closed_schools = data.get("closed_schools_nearby")
+
+    if progress_callback:
+        progress_callback("생활권 지도 생성 중...")
+    visuals = {
+        "map": render_living_area_map(
+            overview["lat"],
+            overview["lon"],
+            overview["radius_km"],
+            schools=facilities.get("schools"),
+            sites=closed_schools,
+        )
+    }
+
+    if progress_callback:
+        progress_callback("차트 생성 중...")
+    chart_jobs = (
+        ("age_chart", lambda: render_age_chart(data["population"])),
+        ("household_chart", lambda: render_household_chart(data["households"])),
+        ("facility_chart", lambda: render_facility_chart(data["child_spaces"])),
+    )
+    for key, make_chart in chart_jobs:
+        try:
+            visuals[key] = make_chart()
+        except Exception as e:
+            # 차트 하나가 실패해도 보고서 전체를 막지는 않는다
+            print(f"{key} 생성 실패: {type(e).__name__}: {e}")
+            visuals[key] = None
+
+    made = [key for key, value in visuals.items() if value]
+    if progress_callback:
+        progress_callback(f"지도·차트 {len(made)}/{len(visuals)}개 생성 완료")
+    return visuals
+
+
+def build_report(data, progress_callback=None):
     """보고서 데이터를 받아 .docx 바이트를 만든다 (Streamlit 다운로드에 바로 쓸 수 있게)."""
+    visuals = build_visuals(data, progress_callback=progress_callback)
+
     document = Document()
     _apply_base_style(document)
 
     _build_cover(document, data["overview"])
-    _build_overview(document, data["overview"])
-    _build_population(document, data)
+    _build_overview(document, data["overview"], visuals)
+    _build_population(document, data, visuals)
     _build_education(document, data)
-    _build_facilities(document, data)
+    _build_facilities(document, data, visuals)
     _build_tourism(document, data)
     _build_trends(document, data)
     _build_survey(document, data)

@@ -19,7 +19,6 @@ render_brand_logo()
 pages = {
     "분석": [
         st.Page("views/living_area.py", title="생활권 분석", icon="🏘️", default=True),
-        st.Page("views/backyard.py", title="배후권 비교", icon="🗺️"),
         st.Page("views/popular_places.py", title="인기 공간", icon="✨"),
         st.Page("views/survey_needs.py", title="주민 니즈 분석", icon="🗣️"),
         st.Page("views/target_report.py", title="대상지 보고서", icon="📄"),

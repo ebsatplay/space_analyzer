@@ -44,21 +44,34 @@ token_budget = budget_col.number_input(
 
 uploaded = st.file_uploader("사회조사 보고서 PDF", type="pdf")
 
-if uploaded is not None and region_name.strip():
-    with st.spinner("PDF에서 텍스트를 뽑는 중..."):
-        try:
-            pages = extract_pages(uploaded)
-        except Exception as e:
-            st.error(f"PDF를 읽지 못했습니다: {e}")
-            st.stop()
+@st.cache_data(show_spinner="PDF에서 텍스트를 뽑는 중...")
+def load_survey_selection(file_name, file_bytes, token_budget):
+    """PDF를 읽어 분석에 쓸 텍스트를 고른다 (결과를 캐시한다).
 
+    캐시가 없으면 토큰 예산 슬라이더를 움직일 때마다 PDF를 다시 파싱한다
+    (파주 289쪽 보고서는 파싱에만 47초가 걸린다).
+    """
+    import io as _io
+
+    pages = extract_pages(_io.BytesIO(file_bytes))
     if not pages:
+        return None
+    return select_relevant_text(pages, token_budget=int(token_budget))
+
+
+if uploaded is not None and region_name.strip():
+    try:
+        data_bytes = uploaded.getvalue()
+        selected = load_survey_selection(uploaded.name, data_bytes, int(token_budget))
+    except Exception as e:
+        st.error(f"PDF를 읽지 못했습니다: {e}")
+        st.stop()
+
+    if not selected:
         st.error(
             "텍스트가 있는 페이지를 찾지 못했습니다. 스캔 이미지로만 된 PDF는 분석할 수 없습니다."
         )
         st.stop()
-
-    selected = select_relevant_text(pages, token_budget=int(token_budget))
 
     info_col1, info_col2, info_col3 = st.columns(3)
     info_col1.metric("텍스트 있는 페이지", f"{selected['total_pages']}쪽")

@@ -58,7 +58,8 @@ from analysis.region_news import (
     region_from_address,
 )
 from services.kakao_service import find_location
-from views._theme import apply_theme, page_header
+from analysis.backyard import get_backyard_metrics, get_backyard_sigungu
+from views._theme import apply_theme, page_header, render_metric_cards
 
 apply_theme()
 page_header("생활권 분석", "걷고 머무는 시간으로 그려보는, 우리 동네의 반경")
@@ -66,8 +67,9 @@ page_header("생활권 분석", "걷고 머무는 시간으로 그려보는, 우
 st.markdown('<div class="search-section-label">위치 검색</div>', unsafe_allow_html=True)
 search_col, button_col = st.columns([4, 1])
 address = search_col.text_input(
-    "기준 주소 또는 장소명", value="포항시청", label_visibility="collapsed",
-    placeholder="기준 주소 또는 장소명을 입력하세요",
+    "기준 주소 또는 장소명",
+    label_visibility="collapsed",
+    placeholder="예: 포항시청, 고령군청, 경북 고령군 대가야읍",
 )
 if button_col.button("검색", use_container_width=True):
     try:
@@ -109,12 +111,28 @@ if selected:
     name, addr, lat, lon = selected
 
     st.subheader("N분 생활권")
-    control_col1, control_col2 = st.columns([1, 2])
-    minutes = control_col1.radio(
-        "이동시간", [10, 20, 30], index=1, format_func=lambda m: f"{m}분",
-        key="living_area_minutes", horizontal=True,
+    preset_col, custom_col, speed_col = st.columns([2, 1, 2])
+    preset_minutes = preset_col.radio(
+        "이동시간", [10, 20, 30, "직접 입력"],
+        index=1,
+        format_func=lambda m: m if isinstance(m, str) else f"{m}분",
+        key="living_area_minutes",
+        horizontal=True,
     )
-    speed_kmh = control_col2.slider(
+    # 버튼에 없는 시간을 쓰고 싶을 때를 위해 직접 입력 칸을 둔다
+    custom_minutes = custom_col.number_input(
+        "직접 입력 (분)",
+        min_value=1,
+        max_value=180,
+        value=25,
+        step=5,
+        key="living_area_minutes_custom",
+        disabled=preset_minutes != "직접 입력",
+        help="왼쪽에서 '직접 입력'을 고르면 이 값이 쓰입니다",
+    )
+    minutes = int(custom_minutes) if preset_minutes == "직접 입력" else int(preset_minutes)
+
+    speed_kmh = speed_col.slider(
         "평균 속도 (km/h)",
         min_value=20,
         max_value=50,
@@ -123,6 +141,7 @@ if selected:
         help="직선거리 환산용 평균 속도",
     )
     radius_km = calc_radius_km(speed_kmh, minutes)
+    st.caption(f"적용: {minutes}분 · 평균 {speed_kmh}km/h · 직선 반경 약 {radius_km:.1f}km")
 
     dongs = get_dongs_in_circle(lat, lon, radius_km)
     dong_geometries = get_dong_geometries(dongs["ADM_CD"].tolist())
@@ -983,6 +1002,103 @@ if selected:
         "분석하면 언급 순위와 월별 변화를 볼 수 있습니다. "
         "블로그·카페를 150건씩 읽어오는 작업이라 별도 화면으로 두었습니다."
     )
+
+    st.subheader("확장 지역 비교")
+
+    st.caption(
+        "생활권 원에 **중심점이 들어오는 시군구**를 모아 지표별로 비교합니다. "
+        "대상지 한 곳만 보는 것이 아니라 '어디까지 같은 생활권으로 묶이는지'를 보는 용도입니다."
+    )
+
+    # 생활권 반경을 그대로 쓰면 10~30분으로는 걸치는 시군구가 거의 없다.
+    # 반대로 생활권 분을 60분으로 올리면 위 섹션들(인구·시설)까지 다른 범위가 되어버린다.
+    # 그래서 이 섹션만 쓰는 시간을 따로 둔다.
+    expand_col1, expand_col2 = st.columns([1, 2])
+    expand_minutes = expand_col1.number_input(
+        "확장 범위 (분)",
+        min_value=5,
+        max_value=240,
+        value=max(minutes, 60),
+        step=5,
+        key="expand_minutes",
+        help="이 섹션에만 쓰는 시간입니다. 위 생활권 설정은 그대로 둡니다",
+    )
+    expand_radius_km = calc_radius_km(speed_kmh, int(expand_minutes))
+    expand_col2.caption(
+        f"확장 반경: 직선거리 기준 약 {expand_radius_km:.1f}km "
+        f"({int(expand_minutes)}분 × {speed_kmh}km/h)"
+    )
+
+    expand_preview = get_backyard_sigungu(lat, lon, expand_radius_km)
+    if expand_preview.empty:
+        st.info(
+            f"확장 반경 {expand_radius_km:.1f}km 안에 중심점이 들어오는 시군구가 없습니다. "
+            "확장 범위를 늘려보세요."
+        )
+    else:
+        st.markdown(
+            f'<div class="highlight-line">🗺️ 확장 지역 {len(expand_preview)}개 · '
+            + " · ".join(
+                f"{row.sigungu_nm.split()[-1]}({row.distance_km:.0f}km)"
+                for row in expand_preview.head(8).itertuples(index=False)
+            )
+            + ("" if len(expand_preview) <= 8 else f" 외 {len(expand_preview) - 8}개")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+        expand_cache = st.session_state.setdefault("expand_metrics_cache", {})
+        expand_key = (round(lat, 5), round(lon, 5), round(expand_radius_km, 2))
+
+        if expand_key not in expand_cache:
+            st.caption(
+                "지표 비교는 시군구마다 카카오 키즈카페 검색이 필요해 버튼을 눌러야 실행됩니다 "
+                f"(현재 {len(expand_preview)}개 지역)."
+            )
+            if st.button("📊 확장 지역 지표 비교", key="expand_run"):
+                status = st.empty()
+
+                def on_expand_progress(message, _status=status):
+                    _status.info(message)
+
+                with st.spinner("확장 지역 지표를 계산하는 중..."):
+                    expand_cache[expand_key] = get_backyard_metrics(
+                        lat, lon, expand_radius_km, progress_callback=on_expand_progress
+                    )
+                status.empty()
+                st.rerun()
+
+        expanded = expand_cache.get(expand_key)
+        if expanded is not None and not expanded.empty:
+            st.markdown(f"**확장 지역 시군구 비교 (총 {len(expanded)}개)**")
+            expand_tabs = st.tabs(
+                ["🧒 어린이 인구", "🏫 초등학교", "🧸 키즈카페", "🏚️ 미활용 폐교", "📚 도서관"]
+            )
+            with expand_tabs[0]:
+                render_metric_cards(
+                    expanded, "age_0_9", "0~9세 어린이 인구", "명", area_label="확장 지역"
+                )
+            with expand_tabs[1]:
+                render_metric_cards(
+                    expanded, "elementary_count", "초등학교", "개", area_label="확장 지역"
+                )
+            with expand_tabs[2]:
+                render_metric_cards(
+                    expanded, "kids_cafe_count", "키즈카페", "개", area_label="확장 지역"
+                )
+            with expand_tabs[3]:
+                render_metric_cards(
+                    expanded, "unused_closed_school_count", "미활용 폐교", "개",
+                    area_label="확장 지역",
+                )
+            with expand_tabs[4]:
+                render_metric_cards(
+                    expanded, "library_count", "도서관", "개", area_label="확장 지역"
+                )
+            st.caption(
+                "※ 시군구 중심점 기준이라 원에 걸치기만 한 지역은 빠질 수 있습니다. "
+                "어린이 인구·초등학교·폐교·도서관은 공공데이터, 키즈카페는 카카오 실시간 검색입니다."
+            )
 
     st.subheader("지역 사업 뉴스·이슈")
 

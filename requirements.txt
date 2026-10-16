@@ -14,3 +14,6 @@ anthropic>=1.0
 pypdf>=5.0
 # 대상지 보고서 Word 생성
 python-docx>=1.0
+# 보고서 지도·차트 이미지 (staticmap은 OSM 타일을 받아 브라우저 없이 지도를 그린다)
+matplotlib>=3.7
+staticmap>=0.5

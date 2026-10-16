@@ -7,10 +7,25 @@ import streamlit as st
 
 SHARED_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap');
+
+/* 폰트는 여기 한 줄만 고치면 전체에 반영된다.
+   웹폰트가 늦게 뜨거나 막혀도 글자가 깨지지 않도록 OS 기본 고딕까지 폴백으로 둔다. */
+:root {
+    --brand-font: 'Noto Sans KR', 'Nanum Gothic', 'Malgun Gothic', '맑은 고딕',
+                  'Apple SD Gothic Neo', sans-serif;
+}
 
 html, body, [class*="css"] {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
+}
+
+/* Streamlit이 자체 스타일로 넣는 요소(위젯 라벨·버튼·표·탭 등)까지 같은 폰트로 맞춘다 */
+html body, body *, .stMarkdown, .stMetric, .stDataFrame, .stButton > button,
+div[data-testid="stWidgetLabel"], div[data-testid="stMetricValue"],
+div[data-testid="stMetricLabel"], div[data-testid="stExpander"] summary,
+input, textarea, select, button, h1, h2, h3, h4, h5, h6 {
+    font-family: var(--brand-font);
 }
 
 .block-container {
@@ -19,12 +34,12 @@ html, body, [class*="css"] {
 }
 
 h1, h2, h3 {
-    font-family: 'Nanum Myeongjo', serif !important;
+    font-family: var(--brand-font) !important;
     color: #4A4238 !important;
 }
 
 .app-title {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 2.6rem;
     font-weight: 700;
     color: #4A4238;
@@ -33,7 +48,7 @@ h1, h2, h3 {
     margin-bottom: 0.3rem;
 }
 .app-subtitle {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-weight: 300;
     color: #A79C8E;
     font-size: 1rem;
@@ -61,7 +76,7 @@ h1, h2, h3 {
     border-bottom: 1px solid #E7DFD3;
 }
 .brand-name {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 1.55rem;
     font-weight: 800;
     color: #4A4238;
@@ -70,7 +85,7 @@ h1, h2, h3 {
     margin-bottom: 0.25rem;
 }
 .brand-tagline {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.78rem;
     font-weight: 300;
     color: #A79C8E;
@@ -80,7 +95,7 @@ h1, h2, h3 {
 
 /* 페이지마다 같은 자리에 오는 입력 영역 (메인 상단) */
 .search-section-label {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 1.05rem;
     font-weight: 700;
     color: #4A4238;
@@ -160,7 +175,7 @@ div[data-testid="stAlert"] {
     border: 2px solid #D9534F;
 }
 .kpi-label {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.9rem;
     font-weight: 500;
     color: #8A8178;
@@ -168,7 +183,7 @@ div[data-testid="stAlert"] {
     letter-spacing: 0.02em;
 }
 .kpi-value {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 2.1rem;
     font-weight: 700;
     line-height: 1.2;
@@ -184,14 +199,14 @@ div[data-testid="stAlert"] {
 .kpi-tangerine .kpi-value { color: #B87332; }
 .kpi-red .kpi-value { color: #C0392B; }
 .kpi-unit {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 1.05rem;
     font-weight: 400;
     margin-left: 2px;
 }
 /* 카드 값 아래 보조 한 줄 (예: 학교 개수 아래 학생수) */
 .kpi-sub {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.88rem;
     font-weight: 500;
     color: #8A8178;
@@ -201,7 +216,7 @@ div[data-testid="stAlert"] {
 
 /* 강조 한 줄 (배후권/인기공간의 요약 라인) */
 .highlight-line {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 1.15rem;
     font-weight: 700;
     color: #C94D63;
@@ -231,7 +246,7 @@ div[data-testid="stAlert"] {
     border: 2px solid #E0637A;
 }
 .region-rank, .place-rank {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.82rem;
     font-weight: 600;
     color: #8A8178;
@@ -240,7 +255,7 @@ div[data-testid="stAlert"] {
 }
 .region-card.top .region-rank, .place-card.top .place-rank { color: #C94D63; }
 .region-name, .place-name {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 1.2rem;
     font-weight: 700;
     color: #4A4238;
@@ -254,13 +269,13 @@ div[data-testid="stAlert"] {
     margin-bottom: 14px;
 }
 .region-main-label {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.85rem;
     color: #8A8178;
     margin-bottom: 2px;
 }
 .region-main-value, .place-value {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 2.3rem;
     font-weight: 700;
     line-height: 1.15;
@@ -268,7 +283,7 @@ div[data-testid="stAlert"] {
 }
 .region-card.top .region-main-value, .place-card.top .place-value { color: #C94D63; }
 .region-main-unit, .place-unit {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 1rem;
     font-weight: 400;
     margin-left: 2px;
@@ -287,7 +302,7 @@ div[data-testid="stAlert"] {
     border-radius: 14px;
     padding: 12px 16px;
     margin-bottom: 10px;
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.88rem;
     line-height: 1.6;
     color: #5B4A7A;
@@ -309,13 +324,13 @@ div[data-testid="stAlert"] {
     margin-bottom: 10px;
 }
 .news-meta {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.78rem;
     color: #8A8178;
     margin-bottom: 6px;
 }
 .news-title {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.98rem;
     font-weight: 600;
     line-height: 1.45;
@@ -337,7 +352,7 @@ div[data-testid="stAlert"] {
     background: #EAF5F8;
     border: 1px solid #CDE7EE;
     color: #3E7C91;
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.72rem;
     font-weight: 700;
     border-radius: 999px;
@@ -385,20 +400,20 @@ div[data-testid="stAlert"] {
     border: 2px solid #D9534F;
 }
 .status-name {
-    font-family: 'Nanum Myeongjo', serif;
+    font-family: var(--brand-font);
     font-size: 1.3rem;
     font-weight: 700;
     color: #4A4238;
     margin-bottom: 6px;
 }
 .status-meta {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-size: 0.9rem;
     color: #8A8178;
     margin-bottom: 4px;
 }
 .status-badge {
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: var(--brand-font);
     font-weight: 700;
     font-size: 0.95rem;
     margin-top: 8px;
@@ -443,6 +458,49 @@ def render_brand_logo():
 def apply_theme():
     """공통 스타일을 적용한다. 각 페이지 맨 위에서 한 번 호출한다."""
     st.markdown(SHARED_CSS, unsafe_allow_html=True)
+
+
+def render_metric_cards(df, value_col, label, unit, top_count=6, area_label="배후권"):
+    """지표 하나를 기준으로 지역 카드를 그린다. 1위 카드는 강조색으로 표시한다.
+
+    배후권 비교와 생활권의 확장 지역 비교가 같은 카드를 쓰므로 여기에 둔다.
+    area_label은 "배후권"/"확장 지역"처럼 부르는 이름만 바꿀 때 쓴다.
+    """
+    sorted_df = df.sort_values(value_col, ascending=False).reset_index(drop=True)
+    top_row = sorted_df.iloc[0]
+
+    if top_row[value_col] == 0:
+        st.info(f"{area_label} 안에 {label}(이)가 없습니다.")
+    else:
+        st.markdown(
+            f'<div class="highlight-line">💡 {label} 최다: {top_row["sigungu_nm"]} '
+            f'(약 {top_row[value_col]:,.0f}{unit})</div>',
+            unsafe_allow_html=True,
+        )
+
+    card_divs = []
+    for rank, row in enumerate(sorted_df.head(top_count).itertuples(index=False), start=1):
+        is_top = rank == 1
+        card_class = "region-card top" if is_top else "region-card"
+        trophy = " 🏆" if is_top else ""
+        value = getattr(row, value_col)
+        card_divs.append(
+            f'<div class="{card_class}">'
+            f'<div class="region-rank">{rank}위{trophy}</div>'
+            f'<div class="region-name">{row.sigungu_nm}</div>'
+            f'<div class="region-distance">거리 약 {row.distance_km:.1f}km</div>'
+            f'<div class="region-main-label">{label}</div>'
+            f'<div class="region-main-value">{value:,.0f}'
+            f'<span class="region-main-unit">{unit}</span></div>'
+            f"</div>"
+        )
+    st.markdown('<div class="region-grid">' + "".join(card_divs) + "</div>", unsafe_allow_html=True)
+
+    if len(sorted_df) > top_count:
+        st.caption(
+            f"{label} 상위 {top_count}개만 카드로 표시했습니다 "
+            f"({area_label} 전체 {len(sorted_df)}개 중)."
+        )
 
 
 def page_header(title, subtitle):

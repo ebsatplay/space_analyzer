@@ -28,10 +28,12 @@ from analysis.area_profile import (
 from analysis.child_space import (
     assess_density,
     classify_child_spaces,
+    compare_with_similar,
     get_child_centers_in_circle,
     get_culture_in_circle,
     get_nationwide_benchmarks,
     get_public_facilities_in_circle,
+    get_sigungu_child_space,
 )
 from analysis.datalab import get_sigungu_datalab
 from analysis.living_area import calc_radius_km, get_dongs_in_circle
@@ -78,6 +80,13 @@ def _collect_tourism(sigungu_cd):
     datalab = get_sigungu_datalab(sigungu_cd)
     detail = get_region_detail(sigungu_cd)
 
+    # 유사 지역의 어린이 공간 현황 - 벤치마킹 대상을 수치로 비교하기 위해 함께 모은다
+    similar_child_space = None
+    if detail and detail.get("similar_regions"):
+        comparison = compare_with_similar(sigungu_cd, detail["similar_regions"])
+        if comparison is not None and not comparison.empty:
+            similar_child_space = comparison.to_dict("records")
+
     return {
         "available": bool(visitors or datalab),
         "registered": detail is not None,
@@ -85,6 +94,8 @@ def _collect_tourism(sigungu_cd):
         "datalab": datalab,
         "detail": detail,
         "level_trend_summary": summarize_level_and_trend(detail) if detail else None,
+        "similar_child_space": similar_child_space,
+        "own_child_space": get_sigungu_child_space(sigungu_cd),
     }
 
 
@@ -269,6 +280,14 @@ def collect_report_data(
         "density": density,
         "benchmarks": benchmarks,
         "kakao_counts": {category: kakao[category]["count"] for category in KAKAO_CATEGORIES},
+        # 지도 마커용 - 미활용 폐교 좌표만 따로 넘긴다
+        "closed_schools_nearby": (
+            closed_schools["closed_schools"].loc[
+                closed_schools["closed_schools"]["usage_status"] == "미활용"
+            ]
+            if len(closed_schools["closed_schools"])
+            else closed_schools["closed_schools"]
+        ),
         "tourism": tourism_profile,
         "news": news,
         "popular": popular,

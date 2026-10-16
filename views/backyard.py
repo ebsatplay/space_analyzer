@@ -8,7 +8,7 @@ import streamlit as st
 from analysis.backyard import get_backyard_metrics
 from analysis.living_area import calc_radius_km
 from services.kakao_service import find_location
-from views._theme import apply_theme, page_header
+from views._theme import apply_theme, page_header, render_metric_cards
 
 apply_theme()
 page_header("배후권 비교", "이 시설에 올 만한 지역들을 비교")
@@ -20,14 +20,31 @@ st.warning(
 
 st.markdown('<div class="search-section-label">위치 검색</div>', unsafe_allow_html=True)
 address = st.text_input(
-    "시설 주소 또는 장소명", value="포항시청", label_visibility="collapsed",
-    placeholder="시설 주소 또는 장소명을 입력하세요",
+    "시설 주소 또는 장소명",
+    label_visibility="collapsed",
+    placeholder="예: 포항시청, 고령군청, 파주놀이구름",
 )
 
-col1, col2 = st.columns([1, 2])
-minutes = col1.radio(
-    "배후권 시간", [30, 60, 90], index=1, format_func=lambda m: f"{m}분", horizontal=True
+col1, col_custom, col2 = st.columns([2, 1, 2])
+preset_minutes = col1.radio(
+    "배후권 시간", [30, 60, 90, "직접 입력"],
+    index=1,
+    format_func=lambda m: m if isinstance(m, str) else f"{m}분",
+    horizontal=True,
+    key="backyard_minutes",
 )
+custom_minutes = col_custom.number_input(
+    "직접 입력 (분)",
+    min_value=1,
+    max_value=240,
+    value=45,
+    step=5,
+    key="backyard_minutes_custom",
+    disabled=preset_minutes != "직접 입력",
+    help="왼쪽에서 '직접 입력'을 고르면 이 값이 쓰입니다",
+)
+minutes = int(custom_minutes) if preset_minutes == "직접 입력" else int(preset_minutes)
+
 speed_kmh = col2.slider(
     "평균 속도 (km/h)",
     min_value=20,
@@ -54,41 +71,6 @@ if st.button("배후권 분석", type="primary"):
         st.warning("위치를 찾을 수 없습니다. 다른 주소나 장소명을 입력해보세요")
 
 candidates = st.session_state.get("backyard_candidates")
-
-
-def render_metric_cards(df, value_col, label, unit, top_count=6):
-    """지표 하나를 기준으로 지역 카드를 그린다. 1위 카드는 강조색으로 표시한다."""
-    sorted_df = df.sort_values(value_col, ascending=False).reset_index(drop=True)
-    top_row = sorted_df.iloc[0]
-
-    if top_row[value_col] == 0:
-        st.info(f"배후권 안에 {label}(이)가 없습니다.")
-    else:
-        st.markdown(
-            f'<div class="highlight-line">💡 {label} 최다: {top_row["sigungu_nm"]} '
-            f'(약 {top_row[value_col]:,.0f}{unit})</div>',
-            unsafe_allow_html=True,
-        )
-
-    card_divs = []
-    for rank, row in enumerate(sorted_df.head(top_count).itertuples(index=False), start=1):
-        is_top = rank == 1
-        card_class = "region-card top" if is_top else "region-card"
-        trophy = " 🏆" if is_top else ""
-        value = getattr(row, value_col)
-        card_divs.append(
-            f'<div class="{card_class}">'
-            f'<div class="region-rank">{rank}위{trophy}</div>'
-            f'<div class="region-name">{row.sigungu_nm}</div>'
-            f'<div class="region-distance">거리 약 {row.distance_km:.1f}km</div>'
-            f'<div class="region-main-label">{label}</div>'
-            f'<div class="region-main-value">{value:,.0f}<span class="region-main-unit">{unit}</span></div>'
-            f"</div>"
-        )
-    st.markdown('<div class="region-grid">' + "".join(card_divs) + "</div>", unsafe_allow_html=True)
-
-    if len(sorted_df) > top_count:
-        st.caption(f"{label} 상위 {top_count}개만 카드로 표시했습니다 (배후권 전체 {len(sorted_df)}개 중).")
 
 
 if candidates:

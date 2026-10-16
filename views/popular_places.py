@@ -62,11 +62,15 @@ if usage["ratio"] >= USAGE_WARN_RATIO:
     )
 
 col1, col2 = st.columns(2)
-region_name = col1.text_input("지역명", value="경주", help="예: 경주, 포항, 부산 해운대")
+region_name = col1.text_input(
+    "지역명", placeholder="예: 경주, 포항, 고령군", help="예: 경주, 포항, 부산 해운대"
+)
 purpose_choice = col2.selectbox("목적 키워드", PURPOSE_PRESETS)
 
 if purpose_choice == "직접 입력":
-    purpose_keyword = st.text_input("목적 키워드 직접 입력", value="아이랑 가볼만한 곳")
+    purpose_keyword = st.text_input(
+        "목적 키워드 직접 입력", placeholder="예: 아이랑 가볼만한 곳, 가족 나들이"
+    )
 else:
     purpose_keyword = purpose_choice
 
