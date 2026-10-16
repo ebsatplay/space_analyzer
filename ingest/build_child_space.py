@@ -1,9 +1,11 @@
 """어린이 공간 레퍼런스 - 공공 시설과 0~9세 인구로 시군구별 밀도 기준선을 만든다.
 
 새 데이터를 받지 않고 이미 있는 것만 쓴다:
-  libraries.parquet     어린이도서관 / 작은도서관 / 공공도서관
-  closed_schools.parquet 미활용 폐교 (부지 후보)
-  population.parquet    0~9세 인구
+  libraries.parquet       어린이도서관 / 작은도서관 / 공공도서관
+  child_centers.parquet   지역아동센터 (아동 돌봄)
+  public_facilities.parquet 공공시설개방 중 프로그램 공간 (평생교육 운영 가능)
+  closed_schools.parquet  미활용 폐교 (부지 후보)
+  population.parquet      0~9세 인구
 
 키즈카페는 카카오 실시간 검색이라 전국 집계를 만들 수 없다 (시군구마다 호출해야 함).
 그래서 전국 비교 기준선은 공공 시설로만 만들고, 민간 경쟁(키즈카페)은 생활권 화면에서
@@ -21,6 +23,8 @@ import pandas as pd
 from analysis.backyard import _assign_sigungu_to_points
 
 LIBRARIES_PATH = "data/processed/libraries.parquet"
+CHILD_CENTERS_PATH = "data/processed/child_centers.parquet"
+PUBLIC_FACILITIES_PATH = "data/processed/public_facilities.parquet"
 CLOSED_SCHOOLS_PATH = "data/processed/closed_schools.parquet"
 POPULATION_PATH = "data/processed/population.parquet"
 SIGUNGU_NAMES_PATH = "data/reference/sigungu_names.csv"
@@ -57,12 +61,16 @@ def classify_libraries(libraries):
 
 def build_child_space(
     libraries_path=LIBRARIES_PATH,
+    child_centers_path=CHILD_CENTERS_PATH,
+    public_facilities_path=PUBLIC_FACILITIES_PATH,
     closed_schools_path=CLOSED_SCHOOLS_PATH,
     population_path=POPULATION_PATH,
     sigungu_names_path=SIGUNGU_NAMES_PATH,
 ):
     """시군구별 어린이 공공공간 수와 0~9세 인구, 그리고 공간당 어린이 수를 만든다."""
     libraries = pd.read_parquet(libraries_path)
+    child_centers = pd.read_parquet(child_centers_path)
+    public_facilities = pd.read_parquet(public_facilities_path)
     closed_schools = pd.read_parquet(closed_schools_path)
     population = pd.read_parquet(population_path)
     sigungu_names = pd.read_csv(sigungu_names_path, dtype=str)
@@ -74,6 +82,19 @@ def build_child_space(
         small_library_count=("small_library", "sum"),
         public_library_count=("public_library", "sum"),
     )
+
+    # 지역아동센터 - 아동 돌봄 공간이라 공공 어린이 공간에 포함한다
+    centers = _assign_sigungu_to_points(child_centers).dropna(subset=["sigungu_cd"])
+    center_counts = centers.groupby("sigungu_cd").agg(
+        child_center_count=("center_name", "size"),
+        child_center_capacity=("capacity", "sum"),
+        child_center_enrolled=("enrolled", "sum"),
+    )
+
+    # 공공시설개방 중 프로그램 공간 - 평생교육 프로그램을 돌릴 수 있는 자리
+    program_spaces = public_facilities[public_facilities["facility_group"] == "프로그램 공간"]
+    program_spaces = _assign_sigungu_to_points(program_spaces).dropna(subset=["sigungu_cd"])
+    program_counts = program_spaces.groupby("sigungu_cd").size().rename("program_space_count")
 
     unused = closed_schools[closed_schools["usage_status"] == "미활용"]
     unused = _assign_sigungu_to_points(unused).dropna(subset=["sigungu_cd"])
@@ -89,6 +110,8 @@ def build_child_space(
     result = (
         sigungu_names.set_index("sigungu_cd")
         .join(library_counts)
+        .join(center_counts)
+        .join(program_counts)
         .join(unused_counts)
         .join(child_population)
         .reset_index()
@@ -96,28 +119,50 @@ def build_child_space(
 
     count_columns = [
         "child_library_count", "small_library_count",
-        "public_library_count", "unused_school_count",
+        "public_library_count", "child_center_count",
+        "child_center_capacity", "child_center_enrolled",
+        "program_space_count", "unused_school_count",
     ]
     for column in count_columns:
         result[column] = result[column].fillna(0).astype(int)
     result["children_0_9"] = result["children_0_9"].fillna(0).astype(int)
     result["population_total"] = result["population_total"].fillna(0).astype(int)
 
-    # 공공 어린이 공간 = 어린이도서관 + 작은도서관 + 공공도서관
-    # (작은도서관까지 넣는 이유: 생활밀착형이라 실제로 아이들이 쓰는 공간이기 때문)
-    result["public_child_spaces"] = (
-        result["child_library_count"] + result["small_library_count"] + result["public_library_count"]
+    # 도서관만으로 센 값도 남긴다. 지역아동센터 데이터는 지자체가 제출한 곳만 들어 있어서
+    # (제공기관 124곳 / 229개 시군구 중 109곳이 0개) 전국 비교의 공정한 분모가 못 된다.
+    # 구미시는 어린이가 26,151명인데 센터가 0개로 나오는데, 없는 게 아니라 미제출이다.
+    result["library_spaces"] = (
+        result["child_library_count"]
+        + result["small_library_count"]
+        + result["public_library_count"]
     )
+
+    # 공공 돌봄·교육 공간 = 도서관 + 지역아동센터
+    # (작은도서관까지 넣는 이유: 생활밀착형이라 실제로 아이들이 쓰는 공간이기 때문.
+    #  지역아동센터는 방과후 돌봄 공간이라 어린이 수요를 직접 받는다)
+    result["public_child_spaces"] = result["library_spaces"] + result["child_center_count"]
+
+    # 센터가 0개인 곳은 "없다"와 "제출을 안 했다"를 구분할 수 없다. 화면에서 밀도를
+    # 해석할 때 이 플래그를 보고 과소집계 가능성을 알린다.
+    result["child_center_reported"] = result["child_center_count"] > 0
 
     # 공간당 어린이 수 - 공간이 0이면 나눌 수 없으므로 비운다 (0으로 두면 '아주 여유'로 오독된다)
     # NaN(float)으로 두어야 round가 동작한다 (pd.NA는 round를 지원하지 않는다)
     spaces = result["public_child_spaces"].replace(0, float("nan"))
     result["children_per_space"] = (result["children_0_9"] / spaces).round(0)
 
+    # 전국 비교용 - 도서관만 기준 (모든 시군구가 같은 조건)
+    library_spaces = result["library_spaces"].replace(0, float("nan"))
+    result["children_per_library_space"] = (result["children_0_9"] / library_spaces).round(0)
+
     columns = [
         "sigungu_cd", "sigungu_nm", "children_0_9", "population_total",
-        "public_child_spaces", "child_library_count", "small_library_count",
-        "public_library_count", "unused_school_count", "children_per_space",
+        "public_child_spaces", "library_spaces",
+        "child_library_count", "small_library_count",
+        "public_library_count", "child_center_count", "child_center_capacity",
+        "child_center_enrolled", "child_center_reported",
+        "program_space_count", "unused_school_count",
+        "children_per_space", "children_per_library_space",
     ]
     return result[columns].sort_values("sigungu_cd").reset_index(drop=True)
 
@@ -137,10 +182,17 @@ def main():
 
     print("\n전국 합계:")
     print(f"  0~9세 인구 {result['children_0_9'].sum():,}명")
-    print(f"  공공 어린이 공간 {result['public_child_spaces'].sum():,}개 "
+    print(f"  공공 돌봄·교육 공간 {result['public_child_spaces'].sum():,}개 "
           f"(어린이도서관 {result['child_library_count'].sum()} / "
           f"작은도서관 {result['small_library_count'].sum()} / "
-          f"공공도서관 {result['public_library_count'].sum()})")
+          f"공공도서관 {result['public_library_count'].sum()} / "
+          f"지역아동센터 {result['child_center_count'].sum()})")
+    print(f"  지역아동센터 정원 {result['child_center_capacity'].sum():,}명 / "
+          f"현원 {result['child_center_enrolled'].sum():,}명")
+    print(f"  프로그램 운영 공간 {result['program_space_count'].sum():,}개")
+    real = result[result["population_total"] > 0]
+    print(f"  지역아동센터 데이터가 있는 시군구 {int(real['child_center_reported'].sum())}"
+          f"/{len(real)}개 (나머지는 미제출 또는 없음 - 구분 불가)")
     print(f"  미활용 폐교 {result['unused_school_count'].sum():,}개")
 
     valid = result[result["children_per_space"].notna()]

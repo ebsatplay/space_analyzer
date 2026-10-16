@@ -38,7 +38,10 @@ from analysis.child_space import (
     assess_density,
     classify_child_spaces,
     compare_with_similar,
+    get_child_centers_in_circle,
+    get_culture_in_circle,
     get_nationwide_benchmarks,
+    get_public_facilities_in_circle,
     get_sigungu_child_space,
 )
 from analysis.tourism_region import (
@@ -702,19 +705,35 @@ if selected:
         "(새 데이터가 아니라 같은 수치의 재분류입니다)."
     )
 
+    child_centers_nearby = get_child_centers_in_circle(lat, lon, radius_km)
+    culture_nearby = get_culture_in_circle(lat, lon, radius_km)
+    public_facilities_nearby = get_public_facilities_in_circle(lat, lon, radius_km)
+
     child_spaces = classify_child_spaces(
-        facilities, libraries_nearby, closed_schools_nearby, kakao_nearby, tourism_count
+        facilities,
+        libraries_nearby,
+        closed_schools_nearby,
+        kakao_nearby,
+        tourism_count,
+        child_centers=child_centers_nearby,
+        culture=culture_nearby,
+        public_facilities=public_facilities_nearby,
     )
     space_icons = {
         "직접 경쟁": ("🎯", "rose"),
-        "공공 유사": ("🏛️", "amber"),
+        "공공 돌봄·교육": ("🏛️", "amber"),
+        "가족 여가": ("🎪", "teal"),
+        "프로그램 운영 공간": ("📚", "lavender"),
         "체험 레퍼런스": ("🔬", "violet"),
         "부지 후보": ("🏚️", "green"),
     }
-    space_cols = st.columns(len(child_spaces))
-    for col, (group_name, group) in zip(space_cols, child_spaces.items()):
-        icon, accent = space_icons[group_name]
-        kpi_card(col, f"{icon} {group_name}", f"{group['count']}", "개", accent)
+    group_items = list(child_spaces.items())
+    for row_start in range(0, len(group_items), 3):
+        row_groups = group_items[row_start:row_start + 3]
+        space_cols = st.columns(3)
+        for col, (group_name, group) in zip(space_cols, row_groups):
+            icon, accent = space_icons[group_name]
+            kpi_card(col, f"{icon} {group_name}", f"{group['count']}", "개", accent)
 
     for group_name, group in child_spaces.items():
         icon, _accent = space_icons[group_name]
@@ -726,11 +745,32 @@ if selected:
                 st.markdown(" · ".join(shown))
                 if len(group["items"]) > 15:
                     st.caption(f"외 {len(group['items']) - 15}곳")
-            if group_name == "공공 유사":
+            if group_name == "공공 돌봄·교육":
                 st.caption(
                     f"어린이도서관 {group['child_library_count']}개 · "
                     f"작은도서관 {group['small_library_count']}개 · "
-                    f"공공도서관 {group['public_library_count']}개"
+                    f"공공도서관 {group['public_library_count']}개 · "
+                    f"지역아동센터 {group['child_center_count']}개"
+                )
+                if group["child_center_count"]:
+                    st.caption(
+                        f"🧒 지역아동센터 아동 돌봄 수용 규모: 정원 "
+                        f"{group['child_center_capacity']:,}명 / 현원 "
+                        f"{group['child_center_enrolled']:,}명"
+                    )
+            if group_name == "가족 여가" and group["breakdown"]:
+                st.caption(
+                    " · ".join(f"{k} {v}개" for k, v in group["breakdown"].items())
+                )
+            if group_name == "프로그램 운영 공간":
+                st.caption(
+                    f"같은 개방시설 중 체육시설은 {group['sports_count']}개입니다 "
+                    "(프로그램 공간에는 넣지 않았습니다)"
+                )
+            if group_name == "부지 후보":
+                st.caption(
+                    f"미활용 폐교 {group['unused_school_count']}개 · "
+                    f"수용 200명 이상 개방시설 {group['large_facility_count']}개"
                 )
             if group_name == "체험 레퍼런스":
                 excluded = group.get("excluded_count", 0)
@@ -747,9 +787,14 @@ if selected:
     st.markdown("**📐 어린이 공간 밀도·포화도**")
 
     benchmarks = get_nationwide_benchmarks()
-    circle_public_spaces = child_spaces["공공 유사"]["count"]
+    circle_public_spaces = child_spaces["공공 돌봄·교육"]["count"]
     circle_children = profile["age_0_9"]
-    density = assess_density(circle_children, circle_public_spaces, benchmarks)
+    density = assess_density(
+        circle_children,
+        circle_public_spaces,
+        benchmarks,
+        child_center_count=child_spaces["공공 돌봄·교육"]["child_center_count"],
+    )
 
     if density is None:
         st.info("밀도 기준선 데이터가 없습니다 (python -m ingest.build_child_space 실행 필요)")
@@ -780,10 +825,13 @@ if selected:
 
         if density["caution"]:
             st.warning(f"⚠️ {density['caution']}")
+        if density.get("coverage_note"):
+            st.warning(f"📋 {density['coverage_note']}")
 
         st.caption(
             f"기준: 전국 {benchmarks['sigungu_count']}개 시군구 분포의 사분위입니다. "
-            "분자는 **생활권 원 안**의 공공 도서관 수, 분모는 **생활권 0~9세 인구**입니다. "
+            "분자는 **생활권 원 안**의 공공 돌봄·교육 공간 수(도서관 + 지역아동센터), "
+            "분모는 **생활권 0~9세 인구**입니다. "
             "비교 기준선은 시군구 단위라 단위가 완전히 같지는 않습니다 (비율끼리의 비교)."
         )
         st.caption(
