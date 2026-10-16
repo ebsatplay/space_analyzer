@@ -280,6 +280,26 @@ div[data-testid="stAlert"] {
     line-height: 1.4;
 }
 
+/* AI 해석 영역 - 객관적 사실과 절대 혼동되지 않도록 시각적으로 확실히 가른다 */
+.ai-opinion-banner {
+    background: linear-gradient(135deg, #F3EFFA 0%, #E9E1F5 100%);
+    border: 2px dashed #A98BD0;
+    border-radius: 14px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: #5B4A7A;
+}
+.ai-opinion-banner b {
+    color: #6F4F96;
+}
+.ai-opinion-body {
+    border-left: 4px solid #A98BD0;
+    padding-left: 14px;
+}
+
 /* 지역 사업 뉴스 목록 */
 .news-item {
     background: linear-gradient(135deg, #FDFBF7 0%, #F7F2E9 100%);

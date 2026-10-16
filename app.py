@@ -21,6 +21,7 @@ pages = {
         st.Page("views/living_area.py", title="생활권 분석", icon="🏘️", default=True),
         st.Page("views/backyard.py", title="배후권 비교", icon="🗺️"),
         st.Page("views/popular_places.py", title="인기 공간", icon="✨"),
+        st.Page("views/survey_needs.py", title="주민 니즈 분석", icon="🗣️"),
     ],
     "설정": [
         st.Page("views/data_management.py", title="데이터 관리", icon="⚙️"),

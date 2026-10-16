@@ -9,3 +9,6 @@ geopandas
 pyarrow>=7.0,<26
 # 관광 트렌드 차트에 직접 쓴다. pyarrow와 같은 이유로 명시해둔다
 altair>=5.0
+# 주민 니즈 분석 (사회조사 보고서 PDF -> Claude API)
+anthropic>=1.0
+pypdf>=5.0

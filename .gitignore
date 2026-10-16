@@ -7,6 +7,7 @@ data/raw/
 
 # 런타임 상태 (API 호출량 카운터 - 실행할 때마다 바뀜)
 data/reference/kakao_usage.json
+data/reference/ai_usage.jsonl
 
 # Python
 __pycache__/
