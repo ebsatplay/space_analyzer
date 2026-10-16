@@ -3,7 +3,14 @@
 .env
 
 # Data
-data/raw/
+# 디렉터리 자체(data/raw/)를 제외하면 git이 안을 들여다보지 않아 하위 파일의 ! 예외가
+# 무시된다. 그래서 'data/raw/*' 로 내용만 제외하고 필요한 파일만 되살린다.
+data/raw/*
+
+# 시연·배포용 사회조사 보고서 2개만 올린다 (주민 니즈 자동 분석에 쓰인다).
+# 나머지 원본(datalab, 공공시설 CSV, 인구/학교 등)은 그대로 제외한다.
+!data/raw/survey_goryeong_2025.pdf
+!data/raw/survey_paju_2025.pdf
 
 # 런타임 상태 (API 호출량 카운터 - 실행할 때마다 바뀜)
 data/reference/kakao_usage.json
