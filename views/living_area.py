@@ -34,6 +34,13 @@ from analysis.datalab import (
     get_search_rank_top,
     get_sigungu_datalab,
 )
+from analysis.child_space import (
+    assess_density,
+    classify_child_spaces,
+    compare_with_similar,
+    get_nationwide_benchmarks,
+    get_sigungu_child_space,
+)
 from analysis.tourism_region import (
     TREND_CAVEAT,
     get_region_detail,
@@ -689,28 +696,120 @@ if selected:
             "(데이터랩 지역 상세가 등록된 지역에서만 제공)"
         )
 
-    st.markdown("**🏢 생활권 내 유사·경쟁 시설**")
-    reference_col1, reference_col2, reference_col3 = st.columns(3)
-    kpi_card(
-        reference_col1,
-        "키즈카페 (민간 경쟁)",
-        f"{kakao_counts['키즈카페']}",
-        "개",
-        "rose",
-    )
-    kpi_card(
-        reference_col2,
-        "도서관 (공공)",
-        f"{library_counts['주요도서관'] + library_counts['작은도서관']}",
-        "개",
-        "amber",
-    )
-    kpi_card(reference_col3, "공식 관광지", f"{tourism_count}", "개", "lavender")
+    st.markdown("**🏢 생활권 내 어린이 공간 레퍼런스**")
     st.caption(
-        "기준: 키즈카페는 **카카오 장소검색**(실시간, 민간시설) · "
-        "도서관·관광지는 **공공데이터포털 표준데이터**(분기~연 단위 갱신)입니다. "
-        "앞 섹션들에 나온 같은 수치를 '참고할 시설' 관점으로 다시 모은 것입니다."
+        "앞 섹션들에 흩어져 있던 시설을 어린이 공간사업 관점으로 다시 묶었습니다 "
+        "(새 데이터가 아니라 같은 수치의 재분류입니다)."
     )
+
+    child_spaces = classify_child_spaces(
+        facilities, libraries_nearby, closed_schools_nearby, kakao_nearby, tourism_count
+    )
+    space_icons = {
+        "직접 경쟁": ("🎯", "rose"),
+        "공공 유사": ("🏛️", "amber"),
+        "체험 레퍼런스": ("🔬", "violet"),
+        "부지 후보": ("🏚️", "green"),
+    }
+    space_cols = st.columns(len(child_spaces))
+    for col, (group_name, group) in zip(space_cols, child_spaces.items()):
+        icon, accent = space_icons[group_name]
+        kpi_card(col, f"{icon} {group_name}", f"{group['count']}", "개", accent)
+
+    for group_name, group in child_spaces.items():
+        icon, _accent = space_icons[group_name]
+        with st.expander(f"{icon} {group_name} {group['count']}개 — {group['note']}"):
+            if not group["items"]:
+                st.caption("생활권 안에 해당 시설이 없습니다")
+            else:
+                shown = group["items"][:15]
+                st.markdown(" · ".join(shown))
+                if len(group["items"]) > 15:
+                    st.caption(f"외 {len(group['items']) - 15}곳")
+            if group_name == "공공 유사":
+                st.caption(
+                    f"어린이도서관 {group['child_library_count']}개 · "
+                    f"작은도서관 {group['small_library_count']}개 · "
+                    f"공공도서관 {group['public_library_count']}개"
+                )
+            if group_name == "체험 레퍼런스":
+                excluded = group.get("excluded_count", 0)
+                excluded_text = (
+                    f" · 주차장·충전소 등 부대시설 {excluded}개 제외" if excluded else ""
+                )
+                st.caption(
+                    f"카카오 문화체험 {group['culture_count']}개 + "
+                    f"공식 관광지 {group['tourism_count']}개{excluded_text} "
+                    "(관광지는 목록이 위 '생활권 관광자원'에 있습니다)"
+                )
+            st.caption(f"출처: {group['source']}")
+
+    st.markdown("**📐 어린이 공간 밀도·포화도**")
+
+    benchmarks = get_nationwide_benchmarks()
+    circle_public_spaces = child_spaces["공공 유사"]["count"]
+    circle_children = profile["age_0_9"]
+    density = assess_density(circle_children, circle_public_spaces, benchmarks)
+
+    if density is None:
+        st.info("밀도 기준선 데이터가 없습니다 (python -m ingest.build_child_space 실행 필요)")
+    else:
+        ratio_text = (
+            f"{density['children_per_space']:,}" if density["children_per_space"] is not None else "-"
+        )
+        st.markdown(
+            f'<div class="highlight-line">📐 [{density["label"]}] '
+            f"어린이 {ratio_text}명당 공공 어린이공간 1개 · {density['interpretation']}</div>",
+            unsafe_allow_html=True,
+        )
+
+        density_col1, density_col2, density_col3 = st.columns(3)
+        kpi_card(density_col1, "생활권 0~9세", f"{circle_children:,}", "명", "pink")
+        kpi_card(density_col2, "공공 어린이공간", f"{circle_public_spaces}", "개", "amber")
+        kpi_card(
+            density_col3,
+            "공간당 어린이",
+            ratio_text,
+            "명",
+            "blue",
+            sub=(
+                f"전국 중위 {benchmarks['ratio_median']:,.0f}명 "
+                f"(여유 {benchmarks['ratio_q1']:,.0f} / 부족 {benchmarks['ratio_q3']:,.0f})"
+            ),
+        )
+
+        if density["caution"]:
+            st.warning(f"⚠️ {density['caution']}")
+
+        st.caption(
+            f"기준: 전국 {benchmarks['sigungu_count']}개 시군구 분포의 사분위입니다. "
+            "분자는 **생활권 원 안**의 공공 도서관 수, 분모는 **생활권 0~9세 인구**입니다. "
+            "비교 기준선은 시군구 단위라 단위가 완전히 같지는 않습니다 (비율끼리의 비교)."
+        )
+        st.caption(
+            "※ 키즈카페는 카카오 실시간 검색이라 전국 집계를 낼 수 없어 밀도 계산에서 "
+            "제외했습니다. 민간 경쟁 규모는 위 '🎯 직접 경쟁' 개수로 보세요."
+        )
+
+    if region_detail is not None and region_detail["similar_regions"]:
+        st.markdown("**⚖️ 유사 지역과 비교 (시군구 단위)**")
+        comparison = compare_with_similar(
+            datalab_sigungu_cd, region_detail["similar_regions"]
+        )
+        if comparison is None or comparison.empty:
+            st.caption("유사 지역의 어린이 공간 데이터를 찾지 못했습니다")
+        else:
+            table = comparison.rename(columns={
+                "sigungu_nm": "시군구",
+                "children_0_9": "0~9세",
+                "public_child_spaces": "공공 어린이공간",
+                "children_per_space": "공간당 어린이",
+            })
+            st.dataframe(table, hide_index=True, use_container_width=True)
+            st.caption(
+                "생활권(원)이 아니라 **시군구 전체** 기준입니다. "
+                "유사 지역은 관광 지표로 묶인 곳이라 어린이 공간 사정은 다를 수 있습니다."
+            )
 
     st.subheader("인기·트렌드")
 
