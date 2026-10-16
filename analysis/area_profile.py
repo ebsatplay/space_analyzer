@@ -4,6 +4,7 @@
 (다른 패키지의 living_area를 import하므로 python analysis/area_profile.py로 직접 실행하면 안 됨)
 """
 
+import functools
 import sys
 
 import pandas as pd
@@ -14,7 +15,9 @@ from services.kakao_service import search_places_nearby
 POPULATION_PATH = "data/processed/population.parquet"
 MAPPING_PATH = "data/reference/adm_cd_mapping.csv"
 SCHOOLS_PATH = "data/processed/schools.parquet"
+STUDENTS_PATH = "data/processed/students.parquet"
 SCHOOL_LEVELS = ["초등학교", "중학교", "고등학교"]
+ELEMENTARY = "초등학교"
 
 LIBRARIES_PATH = "data/processed/libraries.parquet"
 LIBRARY_GROUPS = ["주요도서관", "작은도서관", "기타"]
@@ -31,6 +34,7 @@ KAKAO_CATEGORY_KEYWORDS = {
     "문화체험": ["박물관", "과학관", "미술관", "문화센터"],
     "집객시설": ["대형카페", "쇼핑몰"],
 }
+KAKAO_CATEGORIES = list(KAKAO_CATEGORY_KEYWORDS)
 
 # Windows 콘솔에서 한글 출력이 깨지는 것을 방지
 if hasattr(sys.stdout, "reconfigure"):
@@ -85,11 +89,55 @@ def get_living_area_population(dongs, population_path=POPULATION_PATH, mapping_p
     }
 
 
+@functools.lru_cache(maxsize=1)
+def get_nationwide_child_ratio(population_path=POPULATION_PATH):
+    """전국 인구 중 0~9세 비중(%). 생활권 어린이 비율을 비교할 기준선으로 쓴다.
+
+    농촌·인구소멸 지역은 이 값이 낮게 나오는데, 숫자만 보면 데이터 결함처럼
+    보이기 때문에 "전국 평균 대비 얼마"로 읽히게 하려고 기준선을 함께 보여준다.
+    """
+    try:
+        population = pd.read_parquet(population_path, columns=["total", "age_0_9"])
+    except (FileNotFoundError, OSError):
+        return None
+
+    total = population["total"].sum()
+    if not total:
+        return None
+    return float(population["age_0_9"].sum() / total * 100)
+
+
+@functools.lru_cache(maxsize=1)
+def get_nationwide_lower_grade_ratio(students_path=STUDENTS_PATH):
+    """전국 초등학생 중 저학년(1~3학년) 비중(%). 생활권 값을 비교할 기준선으로 쓴다.
+
+    파일을 매번 읽지 않도록 캐시한다 (갱신하면 앱 재시작이 필요하다).
+    """
+    try:
+        students = pd.read_parquet(students_path, columns=["student_count", "student_grade_1_3"])
+    except (FileNotFoundError, OSError):
+        return None
+
+    lower = students["student_grade_1_3"].dropna()
+    if lower.empty:
+        return None
+    # 저학년 값이 있는 행(= 초등학교)만 분모로 쓴다
+    elementary_total = students.loc[lower.index, "student_count"].sum()
+    if not elementary_total:
+        return None
+    return float(lower.sum() / elementary_total * 100)
+
+
 def get_facilities_in_circle(center_lat, center_lon, radius_km, schools_path=SCHOOLS_PATH):
     """생활권 원 안에 있는 학교를 학교급별로 정리해서 반환한다.
 
     반환: dict
       - counts: {"초등학교": N, "중학교": N, "고등학교": N}
+      - students: {"초등학교": N, "중학교": N, "고등학교": N} (학교급별 학생수 합)
+      - students_total: 생활권 전체 학생수
+      - students_grade_1_3: 초등 저학년(1~3학년) 학생수 - 어린이 공간 수요 지표
+      - matched: {"초등학교": N, ...} 학생수가 연결된 학교 수 (학교 수와 다르면 일부 누락)
+      - matched_total: 학생수가 연결된 학교 수 합계
       - schools: DataFrame (school_name, school_level, lat, lon, distance_km), 거리 가까운 순 정렬
     """
     schools = pd.read_parquet(schools_path)
@@ -102,7 +150,34 @@ def get_facilities_in_circle(center_lat, center_lon, radius_km, schools_path=SCH
     level_counts = in_circle["school_level"].value_counts()
     counts = {level: int(level_counts.get(level, 0)) for level in SCHOOL_LEVELS}
 
-    return {"counts": counts, "schools": in_circle}
+    # 학생수는 교명 매칭으로 붙인 값이라 일부 학교(폐교/분교/교명변경)는 비어 있다.
+    # 합계는 비어 있는 학교를 빼고 더하고, 연결된 학교 수를 따로 알려준다.
+    if "student_count" in in_circle.columns:
+        by_level = in_circle.groupby("school_level")["student_count"]
+        students = {level: int(by_level.sum().get(level, 0)) for level in SCHOOL_LEVELS}
+        matched = {level: int(by_level.count().get(level, 0)) for level in SCHOOL_LEVELS}
+        students_total = int(in_circle["student_count"].sum())
+        matched_total = int(in_circle["student_count"].count())
+    else:
+        students = {level: 0 for level in SCHOOL_LEVELS}
+        matched = dict(students)
+        students_total = 0
+        matched_total = 0
+
+    if "student_grade_1_3" in in_circle.columns:
+        students_grade_1_3 = int(in_circle["student_grade_1_3"].sum())
+    else:
+        students_grade_1_3 = 0
+
+    return {
+        "counts": counts,
+        "students": students,
+        "students_total": students_total,
+        "students_grade_1_3": students_grade_1_3,
+        "matched": matched,
+        "matched_total": matched_total,
+        "schools": in_circle,
+    }
 
 
 def get_libraries_in_circle(center_lat, center_lon, radius_km, libraries_path=LIBRARIES_PATH):

@@ -4,6 +4,9 @@
 행정동코드(adm_cd) 기준으로 연령대 지표를 만들어 data/processed/population.parquet 으로 저장한다.
 원본 5세 구간 22개 컬럼도 함께 남겨둔다 (추후 다른 구간이 필요할 때를 대비).
 
+세대원수별 세대수 CSV도 같은 방식으로 정제해서 data/processed/households.parquet 으로
+저장한다 (가족 가구 비중 = 3~4인 세대 비율, 어린이 공간사업 수요층 지표).
+
 실행: python ingest/build_population.py
 """
 
@@ -14,7 +17,9 @@ import sys
 import pandas as pd
 
 RAW_PATH_TEMPLATE = "data/raw/population_{base_ym}.csv"
+HOUSEHOLDS_RAW_PATH_TEMPLATE = "data/raw/households_{base_ym}.csv"
 PROCESSED_PATH = "data/processed/population.parquet"
+HOUSEHOLDS_PROCESSED_PATH = "data/processed/households.parquet"
 SIGUNGU_NAMES_PATH = "data/reference/sigungu_names.csv"
 BASE_YM = "202608"
 
@@ -26,6 +31,12 @@ AGE_BIN_LABELS = [
     "30~34세", "35~39세", "40~44세", "45~49세", "50~54세", "55~59세",
     "60~64세", "65~69세", "70~74세", "75~79세", "80~84세", "85~89세",
     "90~94세", "95~99세", "100세 이상",
+]
+
+# 세대수 원본 CSV의 세대원수 구간 라벨
+HOUSEHOLD_SIZE_LABELS = [
+    "1인세대", "2인세대", "3인세대", "4인세대", "5인세대",
+    "6인세대", "7인세대", "8인세대", "9인세대", "10인이상세대",
 ]
 
 # Windows 콘솔에서 한글 출력이 깨지는 것을 방지
@@ -128,6 +139,72 @@ def save_sigungu_names(df, out_path=SIGUNGU_NAMES_PATH):
     return out_path
 
 
+def _household_col_name(size_label):
+    """'1인세대' -> 'hh_size_1', '10인이상세대' -> 'hh_size_10_plus' 형태로 변환한다."""
+    digits = re.findall(r"\d+", size_label)
+    if "이상" in size_label:
+        return f"hh_size_{digits[0]}_plus"
+    return f"hh_size_{digits[0]}"
+
+
+def load_and_clean_households(base_ym=BASE_YM):
+    """세대원수별 세대수 CSV를 읽어 읍면동 레벨만 남기고 세대 지표 컬럼을 만든다.
+
+    인구 데이터와 같은 행안부 10자리 코드 체계라 읍면동 필터 방식도 동일하다.
+    원본 세대원수 구간 10개 컬럼도 함께 남겨둔다 (추후 다른 구간이 필요할 때를 대비).
+    """
+    raw_path = HOUSEHOLDS_RAW_PATH_TEMPLATE.format(base_ym=base_ym)
+    try:
+        df = pd.read_csv(raw_path, encoding="cp949")
+    except FileNotFoundError:
+        print(f"파일을 찾을 수 없습니다: {raw_path}")
+        return None
+    except Exception as e:
+        print(f"CSV를 읽는 중 오류가 발생했습니다: {e}")
+        return None
+
+    df["adm_cd"] = df["행정구역"].str.extract(ADM_CD_PATTERN)
+    df["adm_nm"] = (
+        df["행정구역"].str.replace(ADM_CD_PATTERN, "", regex=True).str.strip().str.split().str[-1]
+    )
+
+    # 읍면동만 남긴다 (인구 정제와 동일: 끝 5자리가 0이면 시도/시군구 합계 행)
+    df = df[df["adm_cd"].str[-5:] != "00000"].reset_index(drop=True)
+
+    year, month = base_ym[:4], base_ym[4:]
+    prefix = f"{year}년{month}월_"
+
+    size_cols = []
+    for size_label in HOUSEHOLD_SIZE_LABELS:
+        col_name = _household_col_name(size_label)
+        df[col_name] = _to_int(df[f"{prefix}{size_label}"])
+        size_cols.append(col_name)
+
+    df["total_households"] = _to_int(df[f"{prefix}전체세대"])
+    df["household_1_2"] = df["hh_size_1"] + df["hh_size_2"]
+    df["household_3_4"] = df["hh_size_3"] + df["hh_size_4"]
+    df["household_5plus"] = df[size_cols[4:]].sum(axis=1)
+
+    # 세대수가 0인 동(신설 동 등)에서 0으로 나누지 않도록 분모를 NaN으로 바꿔 계산한다
+    denominator = df["total_households"].replace(0, float("nan"))
+    df["family_ratio"] = (df["household_3_4"] / denominator * 100).round(1)
+
+    df["base_ym"] = base_ym
+
+    columns = [
+        "adm_cd", "adm_nm", "base_ym",
+        "total_households", "household_1_2", "household_3_4", "household_5plus",
+        "family_ratio",
+    ] + size_cols
+    return df[columns]
+
+
+def save_households(df, out_path=HOUSEHOLDS_PROCESSED_PATH):
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    df.to_parquet(out_path, index=False)
+    return out_path
+
+
 def main():
     df = load_and_clean()
     if df is None:
@@ -149,6 +226,22 @@ def main():
         print(f"저장 완료: {out_path}")
         print(f"\n시군구 개수: {len(sigungu_names)}개")
         print(sigungu_names.head())
+
+    print("\n" + "=" * 40 + "\n")
+
+    households = load_and_clean_households()
+    if households is not None:
+        out_path = save_households(households)
+        print(f"저장 완료: {out_path}")
+        print(f"\n읍면동 행 개수: {len(households)}개")
+        print("\n상위 5행:")
+        print(households[[
+            "adm_cd", "adm_nm", "total_households",
+            "household_1_2", "household_3_4", "household_5plus", "family_ratio",
+        ]].head())
+        print(f"\ntotal_households 합계: {households['total_households'].sum():,}세대")
+        print(f"가족 가구(3~4인) 비중 평균: {households['family_ratio'].mean():.1f}%")
+
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ ADDRESS_API_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 KEYWORD_API_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 BLOG_SEARCH_URL = "https://dapi.kakao.com/v2/search/blog"
 CAFE_SEARCH_URL = "https://dapi.kakao.com/v2/search/cafe"
+# 카카오에는 뉴스 전용 검색 엔드포인트가 없다 (/v2/search/news 는 404). 웹문서 검색으로 대체한다.
+WEB_SEARCH_URL = "https://dapi.kakao.com/v2/search/web"
 
 TAG_PATTERN = re.compile(r"<[^>]+>")
 
@@ -224,6 +226,47 @@ def search_cafe(query, size=50, page=1):
     반환: {"total_count", "is_end", "items": [{"title","contents","url","cafename"}, ...]}
     """
     return _search_documents(CAFE_SEARCH_URL, query, size, page, "cafename")
+
+
+def search_news(query, size=20, page=1, sort="accuracy"):
+    """지역 사업/정책 이슈를 찾기 위한 웹문서 검색.
+
+    카카오에는 뉴스 전용 검색이 없어서(/v2/search/news 는 404) 웹문서 검색을 쓴다.
+    그래서 결과에는 언론 기사뿐 아니라 블로그·자료판매 사이트·게시판도 섞여 들어온다.
+    기사만 보려면 호출한 쪽에서 url의 도메인으로 걸러야 한다.
+
+    sort 기본값이 "accuracy"인 이유: "recency"로 받으면 질의와 무관하게 최근 수집된
+    문서가 올라와서, 제목이 'BBS_0000193' 같은 게시판 ID이거나 질의 지역이 아예
+    등장하지 않는 문서가 대부분을 차지한다 (고령군 질의 실측: 언론 도메인 6/20,
+    지역명 포함 1/20). "accuracy"로 받으면 같은 질의가 14/20, 2/20로 올라간다.
+    최신순이 필요하면 accuracy로 넉넉히 받아 datetime으로 직접 정렬/필터하는 쪽이 낫다.
+
+    size: 1~50, sort: "accuracy"(정확도순) 또는 "recency"(최신순)
+
+    반환: {"total_count", "is_end", "items": [{"title","contents","url","datetime"}, ...]}
+          실패 시 None.
+    """
+    params = {"query": query, "size": min(size, 50), "page": page, "sort": sort}
+    data = _request(WEB_SEARCH_URL, params)
+    if data is None:
+        return None
+
+    items = [
+        {
+            "title": _clean_text(doc["title"]),
+            "contents": _clean_text(doc["contents"]),
+            "url": doc["url"],
+            "datetime": doc.get("datetime", ""),
+        }
+        for doc in data.get("documents", [])
+    ]
+    meta = data.get("meta", {})
+
+    return {
+        "total_count": meta.get("total_count", 0),
+        "is_end": meta.get("is_end", True),
+        "items": items,
+    }
 
 
 def search_blog_all(query, max_docs=100):

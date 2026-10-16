@@ -189,6 +189,15 @@ div[data-testid="stAlert"] {
     font-weight: 400;
     margin-left: 2px;
 }
+/* 카드 값 아래 보조 한 줄 (예: 학교 개수 아래 학생수) */
+.kpi-sub {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: #8A8178;
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+}
 
 /* 강조 한 줄 (배후권/인기공간의 요약 라인) */
 .highlight-line {
@@ -269,6 +278,51 @@ div[data-testid="stAlert"] {
     color: #8A8178;
     margin-top: 10px;
     line-height: 1.4;
+}
+
+/* 지역 사업 뉴스 목록 */
+.news-item {
+    background: linear-gradient(135deg, #FDFBF7 0%, #F7F2E9 100%);
+    border: 1px solid #EBE2D2;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+.news-meta {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.78rem;
+    color: #8A8178;
+    margin-bottom: 6px;
+}
+.news-title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.98rem;
+    font-weight: 600;
+    line-height: 1.45;
+}
+.news-title a {
+    color: #4A4238;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(74, 66, 56, 0.25);
+}
+.news-title a:hover {
+    color: #3E7C91;
+    border-bottom-color: #3E7C91;
+}
+.news-keywords {
+    margin-top: 8px;
+}
+.news-keyword {
+    display: inline-block;
+    background: #EAF5F8;
+    border: 1px solid #CDE7EE;
+    color: #3E7C91;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 2px 9px;
+    margin-right: 5px;
 }
 
 /* 신뢰도 배지 / 언급 분해 (인기 공간) */

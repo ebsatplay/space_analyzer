@@ -11,14 +11,24 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import folium_static
 
 from analysis.area_profile import (
+    ELEMENTARY,
+    KAKAO_CATEGORIES,
     get_closed_schools_in_circle,
     get_facilities_in_circle,
     get_libraries_in_circle,
     get_living_area_population,
+    get_nationwide_child_ratio,
+    get_nationwide_lower_grade_ratio,
     get_nearby_facilities_kakao,
     get_tourism_in_circle,
 )
 from analysis.living_area import calc_radius_km, get_dong_geometries, get_dongs_in_circle
+from analysis.region_news import (
+    BUSINESS_KEYWORDS,
+    RECENT_MONTHS,
+    get_region_news,
+    region_from_address,
+)
 from services.kakao_service import find_location
 from views._theme import apply_theme, page_header
 
@@ -261,21 +271,30 @@ if selected:
     profile = get_living_area_population(dongs)
     child_ratio = profile["age_0_9"] / profile["total"] * 100 if profile["total"] else 0
 
-    def kpi_card(col, label, value, unit, accent):
+    def kpi_card(col, label, value, unit, accent, sub=None):
+        sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
         col.markdown(
             f"""
             <div class="kpi-card kpi-{accent}">
                 <div class="kpi-label">{label}</div>
                 <div class="kpi-value">{value}<span class="kpi-unit">{unit}</span></div>
+                {sub_html}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
+    nationwide_child_ratio = get_nationwide_child_ratio()
+    if nationwide_child_ratio and profile["total"]:
+        gap = child_ratio - nationwide_child_ratio
+        child_sub = f"전국 평균 {nationwide_child_ratio:.1f}% 대비 {gap:+.1f}%p"
+    else:
+        child_sub = None
+
     row1_col1, row1_col2, row1_col3 = st.columns(3)
     kpi_card(row1_col1, "총인구", f"{profile['total']:,}", "명", "blue")
     kpi_card(row1_col2, "0~9세 (어린이)", f"{profile['age_0_9']:,}", "명", "pink")
-    kpi_card(row1_col3, "어린이 비율", f"{child_ratio:.1f}", "%", "pink")
+    kpi_card(row1_col3, "어린이 비율", f"{child_ratio:.1f}", "%", "pink", sub=child_sub)
 
     row2_col1, row2_col2 = st.columns(2)
     kpi_card(row2_col1, "10~14세", f"{profile['age_10_14']:,}", "명", "blue")
@@ -291,10 +310,47 @@ if selected:
     st.subheader("생활권 교육시설")
 
     counts = facilities["counts"]
+    students = facilities["students"]
     edu_col1, edu_col2, edu_col3 = st.columns(3)
-    kpi_card(edu_col1, "초등학교", f"{counts['초등학교']}", "개", "green")
-    kpi_card(edu_col2, "중학교", f"{counts['중학교']}", "개", "green")
-    kpi_card(edu_col3, "고등학교", f"{counts['고등학교']}", "개", "green")
+    for col, level in (
+        (edu_col1, ELEMENTARY), (edu_col2, "중학교"), (edu_col3, "고등학교")
+    ):
+        sub = f"{students[level]:,}명" if counts[level] else "해당 학교 없음"
+        kpi_card(col, level, f"{counts[level]}", "개", "green", sub=sub)
+
+    students_total = facilities["students_total"]
+    lower = facilities["students_grade_1_3"]
+    # 저학년 비중은 초등학생을 분모로 본다 (중·고 학생을 섞으면 지역 학령구조가 흐려진다)
+    elementary = students[ELEMENTARY]
+    lower_ratio = lower / elementary * 100 if elementary else 0
+
+    stu_col1, stu_col2 = st.columns(2)
+    kpi_card(stu_col1, "전체 학생수", f"{students_total:,}", "명", "green")
+    kpi_card(
+        stu_col2,
+        "저학년 (초1~3) 학생수",
+        f"{lower:,}",
+        "명",
+        "pink",
+        # 분모를 함께 보여준다 (초등학생이 수십 명인 농촌 생활권에서 비율만 보면 오해하기 쉽다)
+        sub=f"초등학생 {elementary:,}명 중 {lower_ratio:.1f}%" if elementary else None,
+    )
+
+    nationwide_ratio = get_nationwide_lower_grade_ratio()
+    benchmark = f"(전국 평균 {nationwide_ratio:.1f}%)" if nationwide_ratio else ""
+    st.caption(
+        "※ 저학년(초1~3)은 어린이 공간의 주 이용연령대로, 수요 규모를 가늠하는 핵심 지표입니다. "
+        f"초등학생 중 저학년 비중{benchmark}이 낮으면 학령인구가 줄어드는 지역으로 볼 수 있습니다"
+    )
+
+    # 학생수는 교명 매칭으로 붙인 값이라 폐교/분교/교명변경 학교는 비어 있을 수 있다
+    school_total = sum(counts.values())
+    unmatched_schools = school_total - facilities["matched_total"]
+    if unmatched_schools:
+        st.caption(
+            f"※ 생활권 학교 {school_total}개 중 {unmatched_schools}개는 학생수 미연결 "
+            f"(분교·폐교·교명 변경 등)이라 위 학생수 합계에서 빠져 있습니다"
+        )
 
     st.subheader("생활권 폐교 (활용 검토)")
 
@@ -313,16 +369,26 @@ if selected:
             unused_names = closed_schools_nearby["closed_schools"].loc[
                 closed_schools_nearby["closed_schools"]["usage_status"] == "미활용", "name"
             ].tolist()
+            st.markdown(
+                f'<div class="highlight-line">🏚️ 미활용 폐교 {closed_counts["미활용"]}곳이 '
+                f"사업 후보지로 바로 검토 가능합니다</div>",
+                unsafe_allow_html=True,
+            )
             shown = unused_names[:10]
             more_suffix = f" 외 {len(unused_names) - 10}곳" if len(unused_names) > 10 else ""
             st.caption(f"🏚️ 미활용: {', '.join(shown)}{more_suffix}")
+        else:
+            st.caption("※ 생활권 폐교가 모두 활용 중이라 유휴 공간 후보는 없습니다")
 
     st.subheader("생활권 문화시설")
 
     library_counts = libraries_nearby["counts"]
-    culture_col1, culture_col2 = st.columns(2)
-    kpi_card(culture_col1, "공공·어린이도서관", f"{library_counts['주요도서관']}", "개", "amber")
-    kpi_card(culture_col2, "작은도서관", f"{library_counts['작은도서관']}", "개", "amber")
+    if library_counts["주요도서관"] == 0 and library_counts["작은도서관"] == 0:
+        st.info("이 생활권에는 도서관이 없습니다 (어린이 실내활동 공간이 비어 있는 지역)")
+    else:
+        culture_col1, culture_col2 = st.columns(2)
+        kpi_card(culture_col1, "공공·어린이도서관", f"{library_counts['주요도서관']}", "개", "amber")
+        kpi_card(culture_col2, "작은도서관", f"{library_counts['작은도서관']}", "개", "amber")
 
     st.subheader("생활권 관광자원")
 
@@ -340,13 +406,124 @@ if selected:
 
     st.subheader("생활권 주변 시설 (카카오)")
 
-    kakao_col1, kakao_col2, kakao_col3, kakao_col4 = st.columns(4)
-    kpi_card(kakao_col1, "관광명소", f"{kakao_nearby['관광명소']['count']}", "개", "teal")
-    kpi_card(kakao_col2, "키즈카페 (경쟁시설)", f"{kakao_nearby['키즈카페']['count']}", "개", "rose")
-    kpi_card(kakao_col3, "문화체험", f"{kakao_nearby['문화체험']['count']}", "개", "violet")
-    kpi_card(kakao_col4, "집객시설", f"{kakao_nearby['집객시설']['count']}", "개", "tangerine")
+    kakao_counts = {category: kakao_nearby[category]["count"] for category in KAKAO_CATEGORIES}
+    kids_count = kakao_counts["키즈카페"]
+
+    if not any(kakao_counts.values()):
+        # 4개 카테고리가 모두 0이면 실제로 없는 것인지 검색이 실패한 것인지 구분되지 않는다
+        st.warning(
+            "카카오 검색 결과가 없습니다. 정말 주변 시설이 없는 지역일 수도 있지만, "
+            "API 키 설정이나 일일 호출량 한도 문제일 수도 있어 확인이 필요합니다."
+        )
+    else:
+        kakao_col1, kakao_col2, kakao_col3, kakao_col4 = st.columns(4)
+        kpi_card(kakao_col1, "관광명소", f"{kakao_counts['관광명소']}", "개", "teal")
+        kpi_card(
+            kakao_col2,
+            "키즈카페 (경쟁시설)",
+            f"{kids_count}",
+            "개",
+            "rose",
+            sub="경쟁시설 없음" if kids_count == 0 else None,
+        )
+        kpi_card(kakao_col3, "문화체험", f"{kakao_counts['문화체험']}", "개", "violet")
+        kpi_card(kakao_col4, "집객시설", f"{kakao_counts['집객시설']}", "개", "tangerine")
+
+        if kids_count == 0:
+            st.info(
+                "생활권 내 키즈카페가 없습니다. 어린이 실내공간 수요를 받아줄 민간시설이 "
+                "없다는 뜻이라, 공공 어린이 공간의 필요도가 높은 지역으로 볼 수 있습니다."
+            )
 
     st.caption("※ 카카오 실시간 검색 결과이며, 앞의 인구/학교/도서관/관광지와 달리 매번 최신 상태를 반영합니다")
+
+    st.subheader("지역 사업 뉴스·이슈")
+
+    region_name = region_from_address(addr)
+    if region_name is None:
+        st.info("검색한 위치의 주소에서 시군구를 알아내지 못해 뉴스를 찾을 수 없습니다")
+    else:
+        news_cache = st.session_state.setdefault("region_news_cache", {})
+        st.caption(
+            f"'{region_name}' + 사업 키워드 {len(BUSINESS_KEYWORDS)}개로 최근 "
+            f"{RECENT_MONTHS}개월 기사를 찾습니다 (카카오 호출이 많아 버튼을 눌러야 실행됩니다)"
+        )
+
+        if region_name not in news_cache:
+            if st.button(f"🗞️ '{region_name}' 사업 뉴스 검색", key="region_news_run"):
+                progress_bar = st.progress(0.0, text="뉴스 검색 준비 중...")
+
+                def on_progress(index, total, keyword, _bar=progress_bar):
+                    _bar.progress(index / total, text=f"({index}/{total}) '{keyword}' 검색 중...")
+
+                news_cache[region_name] = get_region_news(
+                    region_name, progress_callback=on_progress
+                )
+                progress_bar.empty()
+                st.rerun()
+
+        news = news_cache.get(region_name)
+        if news is not None:
+            news_meta = news["meta"]
+            news_items = news["items"]
+
+            with st.expander("📑 수집·필터 내역 보기"):
+                dropped = news_meta["dropped"]
+                st.markdown(
+                    f"""
+- **검색 질의**: "{region_name}" + 키워드 {len(news_meta['keywords'])}개
+  ({', '.join(news_meta['keywords'])})
+- **카카오 호출**: {news_meta['api_calls']}회 (키워드당 {news_meta['api_calls'] // len(news_meta['keywords'])}페이지)
+- **수집 {news_meta['collected']:,}건 → 최종 {news_meta['kept']}건**
+- **걸러낸 내역**: 지역명 불일치 {dropped['지역명']:,} · {RECENT_MONTHS}개월 초과 {dropped['날짜']:,}
+  · 비언론 도메인 {dropped['도메인']} · 섹션 페이지 {dropped['제목']} · 키워드 미포함 {dropped['키워드']}
+
+📌 카카오에는 뉴스 전용 검색이 없어 **웹문서 검색**을 씁니다. "고령"이 노인(高齡)으로
+잡히거나 다른 지역 기사가 섞여 들어오기 때문에, 지역명이 실제로 등장하는 글만 남기는
+필터가 가장 많은 양을 걸러냅니다.
+
+⚠️ 언론 기사 외에 보도자료·공고가 섞일 수 있고, 반대로 지역명을 줄여 쓴 기사
+("고령군" 대신 "고령")는 누락될 수 있습니다.
+"""
+                )
+
+            if not news_items:
+                st.info(
+                    f"최근 {RECENT_MONTHS}개월 내 '{region_name}' 관련 사업 뉴스가 없습니다. "
+                    "사업 이슈가 활발하지 않은 지역이거나, 기사에서 지역명을 다르게 "
+                    "표기했을 수 있습니다."
+                )
+            else:
+                st.markdown(
+                    f'<div class="highlight-line">🗞️ 최근 {RECENT_MONTHS}개월 '
+                    f"'{region_name}' 관련 사업 뉴스 {len(news_items)}건</div>",
+                    unsafe_allow_html=True,
+                )
+
+                NEWS_SHOW_COUNT = 20
+                item_divs = []
+                for article in news_items[:NEWS_SHOW_COUNT]:
+                    badges = "".join(
+                        f'<span class="news-keyword">{keyword}</span>'
+                        for keyword in article["matched_keywords"]
+                    )
+                    item_divs.append(
+                        '<div class="news-item">'
+                        f'<div class="news-meta">{article["published"].strftime("%Y-%m-%d")}'
+                        f' · {article["source"]}</div>'
+                        f'<div class="news-title">'
+                        f'<a href="{article["url"]}" target="_blank">{article["title"]}</a></div>'
+                        f'<div class="news-keywords">{badges}</div>'
+                        "</div>"
+                    )
+                st.markdown("".join(item_divs), unsafe_allow_html=True)
+
+                if len(news_items) > NEWS_SHOW_COUNT:
+                    st.caption(f"※ 최신 {NEWS_SHOW_COUNT}건만 표시 (총 {len(news_items)}건)")
+
+                if st.button("🔄 다시 검색", key="region_news_refresh"):
+                    news_cache.pop(region_name, None)
+                    st.rerun()
 
     st.subheader(f"생활권 포함 행정동 (총 {len(dongs)}개)")
     if dongs.empty:
